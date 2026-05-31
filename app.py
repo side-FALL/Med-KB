@@ -12,7 +12,10 @@ import requests
 from openai import OpenAI
 
 # —— API ——
-API_KEY = os.environ["CS_API_KEY"]
+API_KEY = os.environ.get("CS_API_KEY", "")
+if not API_KEY:
+    st.error("⚠️ 未配置 CS_API_KEY 环境变量，请在 Space Settings 中添加")
+    st.stop()
 EMBED_BASE = "https://open.cherryin.net/v1"
 EMBED_MODEL = "baai/bge-m3(free)"
 
@@ -21,15 +24,24 @@ import chromadb
 CHROMA_DIR = Path(__file__).resolve().parent / "chromadb"
 COLLECTION = "medical_textbooks"
 
+if not CHROMA_DIR.exists():
+    st.error(f"⚠️ 向量库未找到: {CHROMA_DIR}")
+    st.stop()
+
+try:
+    _chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    _collection = _chroma_client.get_collection(COLLECTION)
+except Exception as e:
+    st.error(f"⚠️ ChromaDB 加载失败: {e}")
+    st.stop()
+
 # —— 嵌入 ——
 _embed_client = OpenAI(api_key=API_KEY, base_url=EMBED_BASE)
 
 def search(text, top_k=5):
     r = _embed_client.embeddings.create(model=EMBED_MODEL, input=[text])
     vec = r.data[0].embedding
-    c = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    col = c.get_or_create_collection(COLLECTION)
-    res = col.query(query_embeddings=[vec], n_results=top_k, include=["documents","metadatas","distances"])
+    res = _collection.query(query_embeddings=[vec], n_results=top_k, include=["documents","metadatas","distances"])
     hits = []
     for i in range(len(res["ids"][0])):
         dist = res["distances"][0][i]
