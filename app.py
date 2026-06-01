@@ -6,14 +6,37 @@ from pathlib import Path
 st.set_page_config(page_title="医学教材知识库", page_icon="🏥", layout="wide")
 
 # ── 加载数据 ──────────────────────────────────────
-APP_DIR = Path("/home/user/app") if os.path.exists("/home/user/app") else Path(__file__).resolve().parent
+# 尝试多个可能的路径
+_APP = Path(__file__).resolve().parent
+_PATHS = [
+    _APP / "vectors.npz",
+    _APP / "workspace" / "vectors.npz",
+    Path("/workspace/vectors.npz"),
+    Path("/home/user/app/vectors.npz"),
+    Path("/home/user/app/workspace/vectors.npz"),
+]
+
+VPATH = None
+for p in _PATHS:
+    if p.exists():
+        VPATH = p
+        break
+
+if VPATH is None:
+    import glob
+    # 搜索全盘
+    found = list(Path("/").glob("**/vectors.npz"))[:5] if os.name != "nt" else []
+    st.error(f"vectors.npz 未找到。\n搜索路径: {_PATHS[:3]}\n当前目录: {_APP}\n文件列表: {sorted(os.listdir(_APP))[:20]}")
+    if found:
+        st.info(f"找到: {found}")
+    st.stop()
+
+MPATH = VPATH.parent / "metadata.json"
 
 @st.cache_resource
 def load_data():
-    vpath = APP_DIR / "vectors.npz"
-    mpath = APP_DIR / "metadata.json"
-    if not vpath.exists():
-        st.error(f"向量文件未找到: {vpath}")
+    if not MPATH.exists():
+        st.error(f"metadata.json 未找到: {MPATH}")
         st.stop()
     data = np.load(vpath)
     embeddings = data["embeddings"].astype(np.float32)
