@@ -91,7 +91,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h2 style="text-align:center">🏥 医学教材知识库</h2>', unsafe_allow_html=True)
-st.caption("7 本医学教材 · 全免费模型 · 24h 在线")
+book_count = len(set(m.get("book","") for m in _collection.get(include=["metadatas"], limit=10000)["metadatas"]))
+st.caption(f"{book_count} 本医学教材 · {_collection.count()} 块 · 免费模型 · 24h 在线")
 
 q = st.text_input("🔍 输入医学问题", placeholder="如：心衰的病理机制、股三角的构成…", label_visibility="collapsed")
 
