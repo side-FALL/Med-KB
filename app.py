@@ -164,4 +164,4 @@ else:
         <p style="margin-top:1rem;opacity:0.8">试试：心衰的病理机制 | 股三角的构成 | 疟原虫的生活史</p>
     </div>""", unsafe_allow_html=True)
 
-st.markdown('<div class="footer">📚 医学教材知识库 · 嵌入 BGE-M3 | 回答 DeepSeek V4 Flash · 全免费 24h在线</div>', unsafe_allow_html=True)
+
