@@ -245,8 +245,8 @@ _embed = OpenAI(api_key=API_KEY, base_url="https://open.cherryin.net/v1")
 
 # 可用模型
 MODELS = {
-    "deepseek/deepseek-v4-flash(free)": "DeepSeek V4 Flash (免费)",
-    "deepseek/deepseek-v3.2-250101(free)": "DeepSeek V3.2 (免费)",
+    "deepseek/deepseek-v4-flash(free)": "DeepSeek V4 Flash",
+    "deepseek/deepseek-v3.2-250101(free)": "DeepSeek V3.2",
 }
 
 # ── 检索函数 ──────────────────────────────────────
