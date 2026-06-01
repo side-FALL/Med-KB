@@ -27,9 +27,8 @@ st.markdown("""
 .source-score { background:linear-gradient(135deg,#667eea,#764ba2); color:white;
     padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; font-weight:600; }
 .footer { text-align:center; color:rgba(255,255,255,0.7); font-size:0.8rem; margin-top:2rem; padding:1rem; }
-/* 压缩 multiselect 高度 */
-.stMultiSelect > div[data-baseweb="select"] { max-height: 45px !important; }
-.stMultiSelect [data-baseweb="tag"] { display:none; }
+/* multiselect 紧凑显示 */
+.stMultiSelect > div[data-baseweb="select"] { max-height: 80px !important; overflow-y: auto !important; }
 @media(max-width:768px){.main-title{font-size:1.8rem;}}
 </style>
 """, unsafe_allow_html=True)
@@ -114,7 +113,6 @@ if scope == "选择教材":
     with st.expander("📖 选择要检索的教材", expanded=True):
         selected_books = st.multiselect(
             "选择教材", ALL_BOOKS,
-            default=ALL_BOOKS,
             format_func=lambda x: f"{x} ({book_stats[x]}块)",
             label_visibility="collapsed"
         )
