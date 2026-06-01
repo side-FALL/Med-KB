@@ -233,7 +233,17 @@ def load_data():
 
 # 加载数据
 embeddings, documents, metadatas = load_data()
-book_count = len(set(m.get("book","?") for m in metadatas))
+
+# 提取所有教材名称和统计
+book_stats = {}
+for m in metadatas:
+    book = m.get("book", "?")
+    book_stats[book] = book_stats.get(book, 0) + 1
+
+# 按块数排序的教材列表
+ALL_BOOKS = sorted(book_stats.keys(), key=lambda x: -book_stats[x])
+book_count = len(ALL_BOOKS)
+total_chunks = len(documents)
 
 # ── API 配置 ──────────────────────────────────────
 API_KEY = os.environ.get("CS_API_KEY", "")
@@ -250,8 +260,14 @@ MODELS = {
 }
 
 # ── 检索函数 ──────────────────────────────────────
-def search(text, k=10):
-    """向量检索"""
+def search(text, k=10, book_filter=None):
+    """向量检索，支持教材过滤
+    
+    Args:
+        text: 查询文本
+        k: 返回结果数
+        book_filter: 教材名称列表，None表示全部
+    """
     try:
         r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
         qvec = np.array(r.data[0].embedding, dtype=np.float32)
@@ -259,15 +275,30 @@ def search(text, k=10):
         
         # 余弦相似度（向量已归一化，点积即余弦相似度）
         scores = embeddings @ qvec
+        
+        # 如果指定了教材范围，过滤分数
+        if book_filter and len(book_filter) < len(ALL_BOOKS):
+            # 创建掩码：只保留选中教材的分数
+            mask = np.zeros(len(scores), dtype=bool)
+            for i, m in enumerate(metadatas):
+                if m.get("book", "?") in book_filter:
+                    mask[i] = True
+            # 将未选中的教材分数设为-inf
+            scores = np.where(mask, scores, -np.inf)
+        
+        # 获取top-k
         top_k = np.argsort(scores)[-k:][::-1]
         
         hits = []
         for idx in top_k:
+            score = scores[int(idx)]
+            if score == -np.inf:  # 跳过过滤掉的
+                continue
             hits.append({
                 "text": documents[int(idx)][:500],  # 限制长度
                 "book": metadatas[int(idx)].get("book","?"),
                 "chapter": metadatas[int(idx)].get("chapter","?"),
-                "similarity": round(float(scores[idx]), 4),
+                "similarity": round(float(score), 4),
             })
         return hits
     except Exception as e:
@@ -327,6 +358,49 @@ with st.sidebar:
     
     st.divider()
     
+    # 教材范围选择
+    st.markdown("### 📚 教材范围")
+    
+    # 选择模式
+    book_mode = st.radio(
+        "检索范围",
+        ["全部教材", "选择教材"],
+        index=0,
+        horizontal=True
+    )
+    
+    selected_books = ALL_BOOKS  # 默认全部
+    
+    if book_mode == "选择教材":
+        # 快捷选择
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("全选", use_container_width=True):
+                st.session_state.selected_books = ALL_BOOKS
+        with col2:
+            if st.button("清空", use_container_width=True):
+                st.session_state.selected_books = []
+        
+        # 初始化
+        if "selected_books" not in st.session_state:
+            st.session_state.selected_books = ALL_BOOKS
+        
+        # 教材多选框
+        selected_books = st.multiselect(
+            "选择教材",
+            options=ALL_BOOKS,
+            default=st.session_state.selected_books,
+            format_func=lambda x: f"{x} ({book_stats[x]}块)",
+            key="book_selector"
+        )
+        st.session_state.selected_books = selected_books
+        
+        # 显示选中数量
+        selected_chunks = sum(book_stats.get(b, 0) for b in selected_books)
+        st.caption(f"已选 {len(selected_books)} 本，{selected_chunks} 个文本块")
+    
+    st.divider()
+    
     # 搜索历史
     st.markdown("### 📜 搜索历史")
     if "hist" in st.session_state and st.session_state.hist:
@@ -350,7 +424,7 @@ with st.sidebar:
     st.markdown(f"""
     **📊 知识库统计**
     - 教材数量: {book_count} 本
-    - 文本块数: {len(documents)} 块
+    - 文本块数: {total_chunks} 块
     - 嵌入模型: BGE-M3 (免费)
     - 回答模型: {MODELS.get(selected_model, selected_model)}
     """)
@@ -383,23 +457,33 @@ with col2:
 if (search_btn or q) and q.strip():
     st.session_state.q = q.strip()
     
+    # 获取选中的教材范围
+    if book_mode == "全部教材":
+        book_filter = None
+    else:
+        book_filter = selected_books if selected_books else ALL_BOOKS
+    
     # 检索
     with st.spinner("🔍 正在检索相关教材段落..."):
-        hits = search(q.strip(), k=top_k)
+        hits = search(q.strip(), k=top_k, book_filter=book_filter)
     
     if hits:
         # 生成回答
         with st.spinner("💡 正在生成回答..."):
             ans = synthesize(q.strip(), hits, model=selected_model)
     else:
-        ans = "⚠️ 未找到相关内容，请尝试换个问法"
+        if book_mode == "选择教材" and not selected_books:
+            ans = "⚠️ 请先选择要检索的教材"
+        else:
+            ans = "⚠️ 未找到相关内容，请尝试换个问法"
     
     # 保存到历史
     st.session_state.hist.append({
         "q": q.strip(),
         "hits": hits,
         "a": ans,
-        "model": MODELS.get(selected_model, selected_model)
+        "model": MODELS.get(selected_model, selected_model),
+        "scope": book_mode
     })
 
 # 显示对话历史
