@@ -38,9 +38,9 @@ def load_data():
     if not MPATH.exists():
         st.error(f"metadata.json 未找到: {MPATH}")
         st.stop()
-    data = np.load(vpath)
+    data = np.load(VPATH)
     embeddings = data["embeddings"].astype(np.float32)
-    with open(mpath, encoding="utf-8") as f:
+    with open(MPATH, encoding="utf-8") as f:
         meta = json.load(f)
     return embeddings, meta["documents"], meta["metadatas"]
 
