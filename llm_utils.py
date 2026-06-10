@@ -199,21 +199,26 @@ def call_llm_stream(
             stream=True,
         )
         r.raise_for_status()
+        r.encoding = "utf-8"
 
-        for line in r.iter_lines(decode_unicode=True):
-            if not line or not line.startswith("data: "):
-                continue
-            data = line[6:]
-            if data.strip() == "[DONE]":
-                break
-            try:
-                import json
-                chunk = json.loads(data)
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                content = delta.get("content", "")
-                if content:
-                    yield content
-            except (ValueError, KeyError, IndexError):
-                continue
+        buffer = ""
+        for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    import json
+                    delta = json.loads(data).get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        yield content
+                except (ValueError, KeyError, IndexError):
+                    continue
     except Exception as e:
         yield f"⚠️ 生成回答失败: {e}"
