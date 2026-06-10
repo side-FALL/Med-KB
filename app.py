@@ -2,8 +2,11 @@
 import streamlit as st
 import os, json, numpy as np
 from pathlib import Path
-import requests
+
 from openai import OpenAI
+
+from llm_utils import COMPACT_SYSTEM_PROMPT, call_llm, build_user_message
+from __init__ import __version__
 
 st.set_page_config(page_title="医学教材知识库", page_icon="🏥", layout="wide")
 
@@ -83,22 +86,38 @@ def search(text, k=10, book_filter=None):
             "chapter":metadatas[int(idx)].get("chapter","?"), "similarity":round(s,4)})
     return hits
 
-def synthesize(q, hits, model="deepseek/deepseek-v4-flash(free)"):
-    ctx = "\n\n---\n\n".join(f"[{i+1}] {h['book']}·{h['chapter']}\n{h['text']}" for i,h in enumerate(hits[:5]))
-    try:
-        r = requests.post("https://open.cherryin.net/v1/chat/completions",
-            headers={"Authorization":f"Bearer {API_KEY}"},
-            json={"model":model,"messages":[
-                {"role":"system","content":"你是医学知识助手。根据教材段落回答用户问题。要求：综合段落给出准确回答，标注来源，中文回答，列出参考来源。"},
-                {"role":"user","content":f"教材段落:\n{ctx}\n\n问题: {q}"}],
-            "temperature":0.3,"max_tokens":2000}, timeout=90)
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"生成失败: {e}"
+def synthesize(q, hits, model="deepseek/deepseek-v4-flash(free)", conv_context=""):
+    user_msg = build_user_message(hits, q, conv_context)
+    return call_llm(API_KEY, user_msg, model=model, system_prompt=COMPACT_SYSTEM_PROMPT)
+
+# ── 侧边栏设置 ─────────────────────────────────
+with st.sidebar:
+    st.markdown("### ⚙️ 设置")
+    use_context = st.checkbox("💬 启用多轮对话",
+        value=st.session_state.get("use_context", True),
+        help="开启后AI会参考之前对话的上下文（如代词指代）")
+    st.session_state.use_context = use_context
+    
+    turns = len(st.session_state.get("conversation_turns", []))
+    if turns > 0:
+        st.caption(f"📝 已进行 {turns} 轮对话")
+    
+    st.divider()
+    if st.button("🗑️ 清空全部", use_container_width=True):
+        st.session_state.hist = []
+        st.session_state.conversation_turns = []
+        st.rerun()
+    
+    st.divider()
+    st.markdown(f"""
+    **📊 知识库统计**
+    - 教材数量: {book_count} 本
+    - 文本块数: {total_chunks} 块
+    - 嵌入模型: BGE-M3 (免费)
+    """)
 
 # ── 主界面 ────────────────────────────────────────
-st.markdown('<h1 class="main-title">🏥 医学教材知识库</h1>', unsafe_allow_html=True)
+st.markdown(f'<h1 class="main-title">🏥 医学教材知识库 v{__version__}</h1>', unsafe_allow_html=True)
 st.markdown(f'<p class="main-subtitle">{book_count} 本教材 · {total_chunks} 个知识点 · 全免费 · 24h在线</p>', unsafe_allow_html=True)
 
 # ── 教材范围（紧凑版）─────────────────────────────
@@ -135,15 +154,30 @@ with col_btn:
 if (search_btn or (q and q.strip() != st.session_state.get("q",""))) and q.strip():
     st.session_state.q = q.strip()
     book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+    
+    # 构建对话上下文
+    conv_context = ""
+    if st.session_state.get("use_context", True) and st.session_state.get("conversation_turns"):
+        recent = st.session_state.conversation_turns[-3:]
+        lines = []
+        for turn_q, turn_a in recent:
+            lines.append(f"用户: {turn_q[:100]}")
+            lines.append(f"助手: {turn_a[:200]}")
+        conv_context = "\n".join(lines)
+    
     with st.spinner("🔍 检索中…"):
         hits = search(q.strip(), k=10, book_filter=book_filter)
     if hits:
         with st.spinner("💡 AI 回答中…"):
-            ans = synthesize(q.strip(), hits, model=selected_model)
+            ans = synthesize(q.strip(), hits, model=selected_model, conv_context=conv_context if st.session_state.get("use_context", True) else "")
     else:
         ans = "未找到相关内容" if selected_books else "请先选择教材"
     if "hist" not in st.session_state: st.session_state.hist = []
+    if "conversation_turns" not in st.session_state: st.session_state.conversation_turns = []
+    if "use_context" not in st.session_state: st.session_state.use_context = True
     st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS.get(selected_model,"")})
+    if st.session_state.use_context:
+        st.session_state.conversation_turns.append((q.strip(), ans))
 
 # ── 显示结果 ──────────────────────────────────────
 if st.session_state.get("hist"):
