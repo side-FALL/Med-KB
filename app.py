@@ -165,13 +165,16 @@ if (search_btn or (q and q.strip() != st.session_state.get("q",""))) and q.strip
             lines.append(f"助手: {turn_a[:200]}")
         conv_context = "\n".join(lines)
     
-    with st.spinner("🔍 检索中…"):
+    with st.status("🔍 正在检索…", expanded=True) as status:
+        st.write("📝 文本向量化中…")
         hits = search(q.strip(), k=10, book_filter=book_filter)
-    if hits:
-        with st.spinner("💡 AI 回答中…"):
+        if hits:
+            st.write(f"✅ 找到 {len(hits)} 条相关内容")
+            status.update(label="✅ 检索完成，正在生成回答…", state="complete")
             ans = synthesize(q.strip(), hits, model=selected_model, conv_context=conv_context if st.session_state.get("use_context", True) else "")
-    else:
-        ans = "未找到相关内容" if selected_books else "请先选择教材"
+        else:
+            status.update(label="⚠️ 未找到相关内容", state="complete")
+            ans = "未找到相关内容" if selected_books else "请先选择教材"
     if "hist" not in st.session_state: st.session_state.hist = []
     if "conversation_turns" not in st.session_state: st.session_state.conversation_turns = []
     if "use_context" not in st.session_state: st.session_state.use_context = True
