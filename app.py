@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openai import OpenAI
 
-from llm_utils import COMPACT_SYSTEM_PROMPT, call_llm, build_user_message
+from llm_utils import COMPACT_SYSTEM_PROMPT, call_llm, call_llm_stream, build_user_message, rewrite_query
 from __init__ import __version__
 
 st.set_page_config(page_title="医学教材知识库", page_icon="🏥", layout="wide")
@@ -165,13 +165,25 @@ if (search_btn or (q and q.strip() != st.session_state.get("q",""))) and q.strip
             lines.append(f"助手: {turn_a[:200]}")
         conv_context = "\n".join(lines)
     
+    # 查询重写
+    search_query = q.strip()
+    if st.session_state.get("use_context", True) and st.session_state.get("conversation_turns"):
+        prev_queries = [t[0] for t in st.session_state.conversation_turns]
+        rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
+        if rewritten != search_query:
+            search_query = rewritten
+            st.info(f"🔄 结合上下文重写查询：{rewritten}")
+    
     with st.status("🔍 正在检索…", expanded=True) as status:
         st.write("📝 文本向量化中…")
-        hits = search(q.strip(), k=10, book_filter=book_filter)
+        hits = search(search_query, k=10, book_filter=book_filter)
         if hits:
             st.write(f"✅ 找到 {len(hits)} 条相关内容")
-            status.update(label="✅ 检索完成，正在生成回答…", state="complete")
-            ans = synthesize(q.strip(), hits, model=selected_model, conv_context=conv_context if st.session_state.get("use_context", True) else "")
+            status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
+            user_msg = build_user_message(hits, q.strip(), conv_context if st.session_state.get("use_context", True) else "")
+            ans = st.write_stream(
+                call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=COMPACT_SYSTEM_PROMPT)
+            )
         else:
             status.update(label="⚠️ 未找到相关内容", state="complete")
             ans = "未找到相关内容" if selected_books else "请先选择教材"
