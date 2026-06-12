@@ -367,12 +367,12 @@ with mode[1]:
 
             st.session_state.quiz_questions = questions
             st.session_state.quiz_answers = answers
-            st.session_state.quiz_topic = quiz_topic.strip()
+            st.session_state.quiz_topic_display = quiz_topic.strip()
             st.session_state.quiz_revealed = [False] * len(questions)
 
     # 显示题目
     if "quiz_questions" in st.session_state and st.session_state.quiz_questions:
-        st.markdown(f"### 📝 {st.session_state.quiz_topic}")
+        st.markdown(f"### 📝 {st.session_state.quiz_topic_display}")
         for i, q in enumerate(st.session_state.quiz_questions):
             st.markdown(f'<div class="ai-bubble"><strong>第 {i+1} 题</strong><br><br>{q}</div>', unsafe_allow_html=True)
             if st.session_state.quiz_revealed[i]:
