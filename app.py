@@ -64,31 +64,43 @@ for k, v in _defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── 数据加载 ──────────────────────────────────────
+# ── 数据加载（按需加载教材）──────────────────────────
 _APP = Path(__file__).resolve().parent
-for _p in [_APP/"vectors.npz", Path("/workspace/vectors.npz"), Path("/home/user/app/vectors.npz")]:
-    if _p.exists(): VPATH = _p; break
-else:
-    st.error("vectors.npz 未找到"); st.stop()
+BOOKS_DIR = _APP / "books"
 
-MPATH = VPATH.parent / "metadata.json"
+# 启动时只加载清单（轻量）
+_MANIFEST = BOOKS_DIR / "manifest.json"
+if not _MANIFEST.exists():
+    st.error("books/ 目录缺失，请先运行 split_books.py"); st.stop()
+BOOK_MANIFEST = json.loads(_MANIFEST.read_text(encoding="utf-8"))
+ALL_BOOKS = sorted(BOOK_MANIFEST.keys(), key=lambda x: -BOOK_MANIFEST[x]["chunks"])
+book_count = len(ALL_BOOKS)
+total_chunks = sum(v["chunks"] for v in BOOK_MANIFEST.values())
 
+# 按需加载单本教材（带缓存）
 @st.cache_resource
-def load_data():
-    data = np.load(VPATH)
-    emb = data["embeddings"].astype(np.float32)
+def load_book(book_name: str):
+    info = BOOK_MANIFEST[book_name]
+    fname = info["file"]
+    emb_data = np.load(BOOKS_DIR / f"{fname}.npz")
+    emb = emb_data["embeddings"].astype(np.float32)
     emb = emb / np.linalg.norm(emb, axis=1, keepdims=True)
-    with open(MPATH, encoding="utf-8") as f:
+    with open(BOOKS_DIR / f"{fname}.json", encoding="utf-8") as f:
         meta = json.load(f)
     return emb, meta["documents"], meta["metadatas"]
 
-embeddings, documents, metadatas = load_data()
-book_stats = {}
-for m in metadatas:
-    b = m.get("book","?"); book_stats[b] = book_stats.get(b,0)+1
-ALL_BOOKS = sorted(book_stats.keys(), key=lambda x: -book_stats[x])
-book_count = len(ALL_BOOKS)
-total_chunks = len(documents)
+# 加载选中的教材数据
+def load_selected_books(book_names: list[str]):
+    all_emb, all_docs, all_metas = [], [], []
+    for name in book_names:
+        if name in BOOK_MANIFEST:
+            emb, docs, metas = load_book(name)
+            all_emb.append(emb)
+            all_docs.extend(docs)
+            all_metas.extend(metas)
+    if not all_emb:
+        return None, [], []
+    return np.vstack(all_emb), all_docs, all_metas
 
 # ── API ───────────────────────────────────────────
 API_KEY = os.environ.get("CS_API_KEY","")
@@ -113,61 +125,25 @@ def _tokenize(text: str) -> list[str]:
             tokens.append(bg)
     return tokens
 
-def _bm25_score(query_tokens: list[str], doc_tokens_set: set[str]) -> float:
-    if not query_tokens: return 0.0
-    return sum(1 for t in query_tokens if t in doc_tokens_set) / len(query_tokens)
-
-_TOKEN_CACHE = VPATH.parent / "doc_tokens.json"
-
-def _load_doc_tokens() -> list[set[str]]:
-    if _TOKEN_CACHE.exists():
-        try:
-            cached = json.loads(_TOKEN_CACHE.read_text(encoding="utf-8"))
-            if len(cached) == len(documents):
-                return [set(t) for t in cached]
-        except Exception:
-            pass
-    tokens = [_tokenize(d) for d in documents]
-    _TOKEN_CACHE.write_text(json.dumps([list(t) for t in tokens], ensure_ascii=False), encoding="utf-8")
-    return [set(t) for t in tokens]
-
-DOC_TOKENS = _load_doc_tokens()
-
 # ── 混合检索 ──────────────────────────────────────
-def search(text, k=10, book_filter=None, alpha=0.7):
+def search(text, embeddings, documents, metadatas, k=10, alpha=0.7):
     r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
     qvec = np.array(r.data[0].embedding, dtype=np.float32)
     qvec = qvec / np.linalg.norm(qvec)
-
-    # 先过滤教材范围，减少计算量
-    if book_filter and len(book_filter) < len(ALL_BOOKS):
-        mask = np.array([m.get("book","?") in book_filter for m in metadatas])
-        indices = np.where(mask)[0]
-        if len(indices) == 0:
-            return []
-        filtered_emb = embeddings[indices]
-        vec_scores = filtered_emb @ qvec
-        filtered_tokens = [DOC_TOKENS[i] for i in indices]
-        filtered_docs = [documents[i] for i in indices]
-        filtered_metas = [metadatas[i] for i in indices]
-    else:
-        indices = np.arange(len(documents))
-        vec_scores = embeddings @ qvec
-        filtered_tokens = DOC_TOKENS
-        filtered_docs = documents
-        filtered_metas = metadatas
+    vec_scores = embeddings @ qvec
 
     # 向量 top-50 候选
-    candidate_k = min(50, len(indices))
+    candidate_k = min(50, len(documents))
     top_candidates = np.argsort(vec_scores)[-candidate_k:][::-1]
 
     # BM25 只对候选计算
     query_tokens = set(_tokenize(text))
-    bm25_scores = np.zeros(len(indices), dtype=np.float32)
+    bm25_scores = np.zeros(len(documents), dtype=np.float32)
     if query_tokens:
         q_len = len(query_tokens)
         for local_idx in top_candidates:
-            bm25_scores[local_idx] = len(query_tokens & filtered_tokens[local_idx]) / q_len
+            doc_tokens = set(_tokenize(documents[local_idx]))
+            bm25_scores[local_idx] = len(query_tokens & doc_tokens) / q_len
 
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores
     top = np.argsort(hybrid_scores)[-k:][::-1]
@@ -175,9 +151,9 @@ def search(text, k=10, book_filter=None, alpha=0.7):
     for local_idx in top:
         s = float(hybrid_scores[local_idx])
         hits.append({
-            "text": filtered_docs[local_idx][:500],
-            "book": filtered_metas[local_idx].get("book","?"),
-            "chapter": filtered_metas[local_idx].get("chapter","?"),
+            "text": documents[local_idx][:500],
+            "book": metadatas[local_idx].get("book","?"),
+            "chapter": metadatas[local_idx].get("chapter","?"),
             "similarity": round(s, 4),
             "vector_sim": round(float(vec_scores[local_idx]), 4),
             "bm25_score": round(float(bm25_scores[local_idx]), 4),
@@ -282,7 +258,13 @@ with mode[0]:
     prompt_to_use = EXAM_SYSTEM_PROMPT if exam_toggle else COMPACT_SYSTEM_PROMPT
 
     if (search_btn or q.strip()) and q.strip():
-        book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+        # 加载选中教材的数据
+        books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
+        with st.status("📚 加载教材数据…", expanded=False) as status:
+            embeddings, documents, metadatas = load_selected_books(books_to_load)
+            if embeddings is None:
+                st.error("未加载到教材数据"); st.stop()
+            status.update(label=f"✅ 已加载 {len(books_to_load)} 本教材", state="complete")
 
         conv_context = ""
         if st.session_state.use_context and st.session_state.conversation_turns:
@@ -303,7 +285,7 @@ with mode[0]:
 
         with st.status("🔍 正在检索…", expanded=True) as status:
             st.write("📝 文本向量化中…")
-            hits = search(search_query, k=top_k, book_filter=book_filter, alpha=st.session_state.alpha)
+            hits = search(search_query, embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
@@ -353,9 +335,12 @@ with mode[1]:
         quiz_btn = st.button("📝 出题", type="primary", use_container_width=True, key="quiz_btn")
 
     if quiz_btn and quiz_topic.strip():
-        book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+        books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
+        embeddings, documents, metadatas = load_selected_books(books_to_load)
+        if embeddings is None:
+            st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 检索教材并出题…", expanded=True) as status:
-            hits = search(quiz_topic.strip(), k=top_k, book_filter=book_filter, alpha=st.session_state.alpha)
+            hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
             if hits:
                 user_msg = build_quiz_message(hits, quiz_topic.strip())
                 status.update(label="✅ 检索完成，正在生成题目…", state="complete")
@@ -399,10 +384,13 @@ with mode[2]:
     cmp_btn = st.button("🔄 开始对比", type="primary", use_container_width=True, key="cmp_btn")
 
     if cmp_btn and concept_a.strip() and concept_b.strip():
-        book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+        books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
+        embeddings, documents, metadatas = load_selected_books(books_to_load)
+        if embeddings is None:
+            st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 分别检索两个概念…", expanded=True) as status:
-            hits_a = search(concept_a.strip(), k=top_k, book_filter=book_filter, alpha=st.session_state.alpha)
-            hits_b = search(concept_b.strip(), k=top_k, book_filter=book_filter, alpha=st.session_state.alpha)
+            hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
+            hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
             if hits_a or hits_b:
                 st.write(f"✅ {concept_a} 找到 {len(hits_a)} 条，{concept_b} 找到 {len(hits_b)} 条")
                 status.update(label="✅ 检索完成，正在生成对比…", state="complete")
@@ -441,9 +429,12 @@ with mode[3]:
     case_btn = st.button("🏥 开始分析", type="primary", use_container_width=True, key="case_btn")
 
     if case_btn and case_desc.strip():
-        book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+        books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
+        embeddings, documents, metadatas = load_selected_books(books_to_load)
+        if embeddings is None:
+            st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 检索相关教材…", expanded=True) as status:
-            hits = search(case_desc.strip(), k=top_k, book_filter=book_filter, alpha=st.session_state.alpha)
+            hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，正在分析病例…", state="complete")
