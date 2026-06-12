@@ -170,7 +170,7 @@ with st.sidebar:
         help="1.0=纯向量检索，0.0=纯关键词检索", key="alpha_slider")
 
     use_context = st.checkbox("💬 启用多轮对话",
-        value=use_context,
+        value=st.session_state.get("use_context", True),
         help="开启后AI会参考之前对话的上下文", key="use_context_cb")
 
     turns = len(st.session_state.conversation_turns)
