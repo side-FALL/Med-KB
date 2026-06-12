@@ -255,8 +255,7 @@ with mode[0]:
         key="exam_toggle")
     prompt_to_use = EXAM_SYSTEM_PROMPT if exam_toggle else COMPACT_SYSTEM_PROMPT
 
-    if (search_btn or (q and q.strip() != st.session_state.get("q",""))) and q.strip():
-        st.session_state.q = q.strip()
+    if (search_btn or q.strip()) and q.strip():
         book_filter = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
 
         conv_context = ""
