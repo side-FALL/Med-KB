@@ -139,18 +139,26 @@ def search(text, k=10, book_filter=None, alpha=0.7):
     qvec = np.array(r.data[0].embedding, dtype=np.float32)
     qvec = qvec / np.linalg.norm(qvec)
     vec_scores = embeddings @ qvec
-    query_tokens = set(_tokenize(text))
 
-    # BM25：用集合交集加速
+    # 先用向量分数取 top-50 候选，再对候选做 BM25 重排序
+    candidate_k = min(50, len(documents))
+    if book_filter and len(book_filter) < len(ALL_BOOKS):
+        mask = np.array([m.get("book","?") in book_filter for m in metadatas])
+        vec_scores_filtered = np.where(mask, vec_scores, -np.inf)
+    else:
+        vec_scores_filtered = vec_scores
+    top_candidates = np.argsort(vec_scores_filtered)[-candidate_k:][::-1]
+
+    query_tokens = set(_tokenize(text))
     bm25_scores = np.zeros(len(documents), dtype=np.float32)
     if query_tokens:
         q_len = len(query_tokens)
-        for doc_idx, dt in enumerate(DOC_TOKENS):
-            bm25_scores[doc_idx] = len(query_tokens & dt) / q_len
+        for idx in top_candidates:
+            doc_idx = int(idx)
+            bm25_scores[doc_idx] = len(query_tokens & DOC_TOKENS[doc_idx]) / q_len
 
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores
     if book_filter and len(book_filter) < len(ALL_BOOKS):
-        mask = np.array([m.get("book","?") in book_filter for m in metadatas])
         hybrid_scores = np.where(mask, hybrid_scores, -np.inf)
     top = np.argsort(hybrid_scores)[-k:][::-1]
     hits = []
