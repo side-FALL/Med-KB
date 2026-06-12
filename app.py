@@ -7,7 +7,8 @@ from pathlib import Path
 from openai import OpenAI
 
 from llm_utils import (
-    SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT, QUIZ_SYSTEM_PROMPT, COMPARE_SYSTEM_PROMPT,
+    SYSTEM_PROMPT, COMPACT_SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT,
+    QUIZ_SYSTEM_PROMPT, COMPARE_SYSTEM_PROMPT,
     CASE_SYSTEM_PROMPT, MINDMAP_SYSTEM_PROMPT,
     call_llm, call_llm_stream, rewrite_query,
     build_user_message, build_quiz_message, build_compare_message,
@@ -245,9 +246,14 @@ with mode[0]:
     with col_q:
         q = st.text_input("输入问题", value=st.session_state.get("q",""),
             placeholder="如：心衰的病理机制、股三角的构成、疟原虫的生活史…",
-            label_visibility="collapsed", key="qa_input")
+            label_visibility="collapsed", key="q")
     with col_btn:
         search_btn = st.button("🔍 搜索", type="primary", use_container_width=True, key="qa_btn")
+
+    exam_toggle = st.checkbox("⭐ 考点标注模式", value=False,
+        help="开启后回答中标注高频考点、核心知识点、易混淆点",
+        key="exam_toggle")
+    prompt_to_use = EXAM_SYSTEM_PROMPT if exam_toggle else COMPACT_SYSTEM_PROMPT
 
     if (search_btn or (q and q.strip() != st.session_state.get("q",""))) and q.strip():
         st.session_state.q = q.strip()
@@ -278,7 +284,7 @@ with mode[0]:
                 status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
                 user_msg = build_user_message(hits, q.strip(), conv_context if st.session_state.use_context else "")
                 ans = st.write_stream(
-                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=EXAM_SYSTEM_PROMPT)
+                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use)
                 )
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
@@ -287,8 +293,8 @@ with mode[0]:
         if st.session_state.use_context:
             st.session_state.conversation_turns.append((q.strip(), ans))
 
-    # 显示问答历史
-    qa_items = [h for h in st.session_state.hist if h.get("mode") == "问答"]
+    # 显示问答历史（包含旧记录，兼容无 mode 字段的条目）
+    qa_items = [h for h in st.session_state.hist if h.get("mode", "问答") == "问答"]
     if qa_items:
         st.markdown("---")
         for item in reversed(qa_items):
