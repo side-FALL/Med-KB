@@ -164,11 +164,6 @@ def search(text, k=10, book_filter=None, alpha=0.7):
 with st.sidebar:
     st.markdown("### ⚙️ 设置")
 
-    selected_model = st.selectbox(
-        "🤖 AI 模型", list(MODELS.keys()),
-        format_func=lambda x: MODELS[x], index=0
-    )
-
     top_k = st.slider("返回结果数", 3, 15, 10)
     alpha = st.slider("向量权重 (α)", 0.0, 1.0, 0.7,
         help="1.0=纯向量检索，0.0=纯关键词检索")
@@ -182,28 +177,6 @@ with st.sidebar:
     turns = len(st.session_state.conversation_turns)
     if turns > 0:
         st.caption(f"📝 已进行 {turns} 轮对话")
-
-    st.divider()
-    st.markdown("### 📚 教材范围")
-    scope = st.radio("检索范围", ["全部教材", "选择教材"], index=0, horizontal=True)
-    selected_books = ALL_BOOKS
-    if scope == "选择教材":
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("全选", use_container_width=True):
-                st.session_state.selected_books = ALL_BOOKS
-        with c2:
-            if st.button("清空", use_container_width=True):
-                st.session_state.selected_books = []
-        if "selected_books" not in st.session_state:
-            st.session_state.selected_books = ALL_BOOKS
-        selected_books = st.multiselect("选择教材", ALL_BOOKS,
-            default=st.session_state.selected_books,
-            format_func=lambda x: f"{x} ({book_stats[x]}块)")
-        st.session_state.selected_books = selected_books
-        if selected_books:
-            n = sum(book_stats.get(b,0) for b in selected_books)
-            st.caption(f"已选 {len(selected_books)}/{book_count} 本，{n} 块")
 
     st.divider()
     st.markdown("### 📜 搜索历史")
@@ -234,6 +207,36 @@ with st.sidebar:
 # ── 主界面 ────────────────────────────────────────
 st.markdown(f'<h1 class="main-title">🏥 医学教材知识库 v{__version__}</h1>', unsafe_allow_html=True)
 st.markdown(f'<p class="main-subtitle">{book_count} 本教材 · {total_chunks} 个知识点 · 全免费 · 24h在线</p>', unsafe_allow_html=True)
+
+# ── 教材范围 + 模型选择 ──────────────────────────────
+col_scope, col_model = st.columns([3, 1])
+with col_scope:
+    scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed")
+with col_model:
+    selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
+        format_func=lambda x: MODELS[x], label_visibility="collapsed")
+
+selected_books = ALL_BOOKS
+if scope == "选择教材":
+    with st.expander("📖 选择要检索的教材", expanded=True):
+        c1, c2 = st.columns([4, 1])
+        with c2:
+            if st.button("全选", use_container_width=True, key="sel_all"):
+                st.session_state.selected_books = ALL_BOOKS
+            if st.button("清空", use_container_width=True, key="sel_clr"):
+                st.session_state.selected_books = []
+        if "selected_books" not in st.session_state:
+            st.session_state.selected_books = ALL_BOOKS
+        selected_books = st.multiselect("选择教材", ALL_BOOKS,
+            default=st.session_state.selected_books,
+            format_func=lambda x: f"{x} ({book_stats[x]}块)",
+            label_visibility="collapsed")
+        st.session_state.selected_books = selected_books
+        if selected_books:
+            n = sum(book_stats.get(b,0) for b in selected_books)
+            st.caption(f"已选 {len(selected_books)}/{book_count} 本，{n} 个文本块")
+        else:
+            st.warning("请至少选择一本教材")
 
 # ── 模式切换 ──────────────────────────────────────
 mode = st.tabs(["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析"])
