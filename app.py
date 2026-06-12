@@ -183,9 +183,8 @@ with st.sidebar:
     st.markdown("### 📜 搜索历史")
     if st.session_state.hist:
         for i, item in enumerate(reversed(st.session_state.hist[-10:])):
-            if st.button(f"🔍 {item['q'][:30]}...", key=f"hist_{i}"):
-                st.session_state.q = item['q']
-                st.rerun()
+            mode_icon = {"问答":"💬","刷题":"📝","对比":"🔄","病例":"🏥"}.get(item.get("mode","问答"),"💬")
+            st.caption(f"{mode_icon} {item['q'][:35]}")
     else:
         st.caption("暂无搜索历史")
 
