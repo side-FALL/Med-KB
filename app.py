@@ -26,7 +26,6 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 
 .stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
 .main .block-container { max-width: 900px; padding: 2rem 1rem; }
