@@ -138,40 +138,49 @@ def search(text, k=10, book_filter=None, alpha=0.7):
     r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
     qvec = np.array(r.data[0].embedding, dtype=np.float32)
     qvec = qvec / np.linalg.norm(qvec)
-    vec_scores = embeddings @ qvec
 
-    # 先用向量分数取 top-50 候选，再对候选做 BM25 重排序
-    candidate_k = min(50, len(documents))
+    # 先过滤教材范围，减少计算量
     if book_filter and len(book_filter) < len(ALL_BOOKS):
         mask = np.array([m.get("book","?") in book_filter for m in metadatas])
-        vec_scores_filtered = np.where(mask, vec_scores, -np.inf)
+        indices = np.where(mask)[0]
+        if len(indices) == 0:
+            return []
+        filtered_emb = embeddings[indices]
+        vec_scores = filtered_emb @ qvec
+        filtered_tokens = [DOC_TOKENS[i] for i in indices]
+        filtered_docs = [documents[i] for i in indices]
+        filtered_metas = [metadatas[i] for i in indices]
     else:
-        vec_scores_filtered = vec_scores
-    top_candidates = np.argsort(vec_scores_filtered)[-candidate_k:][::-1]
+        indices = np.arange(len(documents))
+        vec_scores = embeddings @ qvec
+        filtered_tokens = DOC_TOKENS
+        filtered_docs = documents
+        filtered_metas = metadatas
 
+    # 向量 top-50 候选
+    candidate_k = min(50, len(indices))
+    top_candidates = np.argsort(vec_scores)[-candidate_k:][::-1]
+
+    # BM25 只对候选计算
     query_tokens = set(_tokenize(text))
-    bm25_scores = np.zeros(len(documents), dtype=np.float32)
+    bm25_scores = np.zeros(len(indices), dtype=np.float32)
     if query_tokens:
         q_len = len(query_tokens)
-        for idx in top_candidates:
-            doc_idx = int(idx)
-            bm25_scores[doc_idx] = len(query_tokens & DOC_TOKENS[doc_idx]) / q_len
+        for local_idx in top_candidates:
+            bm25_scores[local_idx] = len(query_tokens & filtered_tokens[local_idx]) / q_len
 
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores
-    if book_filter and len(book_filter) < len(ALL_BOOKS):
-        hybrid_scores = np.where(mask, hybrid_scores, -np.inf)
     top = np.argsort(hybrid_scores)[-k:][::-1]
     hits = []
-    for idx in top:
-        s = float(hybrid_scores[int(idx)])
-        if s == -np.inf: continue
+    for local_idx in top:
+        s = float(hybrid_scores[local_idx])
         hits.append({
-            "text": documents[int(idx)][:500],
-            "book": metadatas[int(idx)].get("book","?"),
-            "chapter": metadatas[int(idx)].get("chapter","?"),
+            "text": filtered_docs[local_idx][:500],
+            "book": filtered_metas[local_idx].get("book","?"),
+            "chapter": filtered_metas[local_idx].get("chapter","?"),
             "similarity": round(s, 4),
-            "vector_sim": round(float(vec_scores[int(idx)]), 4),
-            "bm25_score": round(float(bm25_scores[int(idx)]), 4),
+            "vector_sim": round(float(vec_scores[local_idx]), 4),
+            "bm25_score": round(float(bm25_scores[local_idx]), 4),
         })
     return hits
 
