@@ -76,6 +76,7 @@ BOOK_MANIFEST = json.loads(_MANIFEST.read_text(encoding="utf-8"))
 ALL_BOOKS = sorted(BOOK_MANIFEST.keys(), key=lambda x: -BOOK_MANIFEST[x]["chunks"])
 book_count = len(ALL_BOOKS)
 total_chunks = sum(v["chunks"] for v in BOOK_MANIFEST.values())
+book_stats = {name: info["chunks"] for name, info in BOOK_MANIFEST.items()}
 
 # 按需加载单本教材（带缓存）
 @st.cache_resource
