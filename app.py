@@ -167,13 +167,11 @@ with st.sidebar:
 
     top_k = st.slider("返回结果数", 3, 15, 10)
     alpha = st.slider("向量权重 (α)", 0.0, 1.0, 0.7,
-        help="1.0=纯向量检索，0.0=纯关键词检索")
-    st.session_state.alpha = alpha
+        help="1.0=纯向量检索，0.0=纯关键词检索", key="alpha_slider")
 
     use_context = st.checkbox("💬 启用多轮对话",
-        value=st.session_state.use_context,
-        help="开启后AI会参考之前对话的上下文")
-    st.session_state.use_context = use_context
+        value=use_context,
+        help="开启后AI会参考之前对话的上下文", key="use_context_cb")
 
     turns = len(st.session_state.conversation_turns)
     if turns > 0:
@@ -267,7 +265,7 @@ with mode[0]:
             status.update(label=f"✅ 已加载 {len(books_to_load)} 本教材", state="complete")
 
         conv_context = ""
-        if st.session_state.use_context and st.session_state.conversation_turns:
+        if use_context and st.session_state.conversation_turns:
             recent = st.session_state.conversation_turns[-3:]
             lines = []
             for turn_q, turn_a in recent:
@@ -276,7 +274,7 @@ with mode[0]:
             conv_context = "\n".join(lines)
 
         search_query = q.strip()
-        if st.session_state.use_context and st.session_state.conversation_turns:
+        if use_context and st.session_state.conversation_turns:
             prev_queries = [t[0] for t in st.session_state.conversation_turns]
             rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
             if rewritten != search_query:
@@ -285,11 +283,11 @@ with mode[0]:
 
         with st.status("🔍 正在检索…", expanded=True) as status:
             st.write("📝 文本向量化中…")
-            hits = search(search_query, embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
+            hits = search(search_query, embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
-                user_msg = build_user_message(hits, q.strip(), conv_context if st.session_state.use_context else "")
+                user_msg = build_user_message(hits, q.strip(), conv_context if use_context else "")
                 ans = st.write_stream(
                     call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use)
                 )
@@ -297,7 +295,7 @@ with mode[0]:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 ans = "未找到相关内容"
         st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS.get(selected_model,""),"mode":"问答"})
-        if st.session_state.use_context:
+        if use_context:
             st.session_state.conversation_turns.append((q.strip(), ans))
 
     # 显示问答历史（包含旧记录，兼容无 mode 字段的条目）
@@ -340,7 +338,7 @@ with mode[1]:
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 检索教材并出题…", expanded=True) as status:
-            hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
+            hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 user_msg = build_quiz_message(hits, quiz_topic.strip())
                 status.update(label="✅ 检索完成，正在生成5道题目…", state="complete")
@@ -411,8 +409,8 @@ with mode[2]:
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 分别检索两个概念…", expanded=True) as status:
-            hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
-            hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
+            hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
+            hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits_a or hits_b:
                 st.write(f"✅ {concept_a} 找到 {len(hits_a)} 条，{concept_b} 找到 {len(hits_b)} 条")
                 status.update(label="✅ 检索完成，正在生成对比…", state="complete")
@@ -456,7 +454,7 @@ with mode[3]:
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
         with st.status("🔍 检索相关教材…", expanded=True) as status:
-            hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
+            hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，正在分析病例…", state="complete")
