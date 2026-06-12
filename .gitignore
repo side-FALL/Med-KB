@@ -4,3 +4,4 @@ __pycache__/
 .env
 doc_tokens.json
 inverted_index.json
+AGENT.md
