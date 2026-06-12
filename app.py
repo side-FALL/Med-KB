@@ -133,6 +133,20 @@ def _load_doc_tokens() -> list[set[str]]:
 
 DOC_TOKENS = _load_doc_tokens()
 
+# ── 倒排索引（加速 BM25）────────────────────────────
+@st.cache_resource
+def _build_inverted_index():
+    """构建倒排索引：token -> 文档索引集合"""
+    index = {}
+    for doc_idx, tokens in enumerate(DOC_TOKENS):
+        for token in tokens:
+            if token not in index:
+                index[token] = set()
+            index[token].add(doc_idx)
+    return index
+
+_INVERTED_INDEX = _build_inverted_index()
+
 # ── 混合检索 ──────────────────────────────────────
 def search(text, k=10, book_filter=None, alpha=0.7):
     r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
@@ -140,7 +154,16 @@ def search(text, k=10, book_filter=None, alpha=0.7):
     qvec = qvec / np.linalg.norm(qvec)
     vec_scores = embeddings @ qvec
     query_tokens = _tokenize(text)
-    bm25_scores = np.array([_bm25_score(query_tokens, dt) for dt in DOC_TOKENS])
+
+    # 使用倒排索引加速 BM25
+    bm25_scores = np.zeros(len(documents), dtype=np.float32)
+    if query_tokens:
+        for token in query_tokens:
+            if token in _INVERTED_INDEX:
+                for doc_idx in _INVERTED_INDEX[token]:
+                    bm25_scores[doc_idx] += 1.0
+        bm25_scores /= len(query_tokens)
+
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores
     if book_filter and len(book_filter) < len(ALL_BOOKS):
         mask = np.array([m.get("book","?") in book_filter for m in metadatas])
