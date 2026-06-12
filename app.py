@@ -201,7 +201,6 @@ with st.sidebar:
     - 教材数量: {book_count} 本
     - 文本块数: {total_chunks} 块
     - 嵌入模型: BGE-M3 (免费)
-    - 回答模型: {MODELS.get(selected_model, selected_model)}
     """)
 
 # ── 主界面 ────────────────────────────────────────
