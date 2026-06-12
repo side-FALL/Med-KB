@@ -133,19 +133,29 @@ def _load_doc_tokens() -> list[set[str]]:
 
 DOC_TOKENS = _load_doc_tokens()
 
-# ── 倒排索引（加速 BM25）────────────────────────────
-@st.cache_resource
-def _build_inverted_index():
-    """构建倒排索引：token -> 文档索引集合"""
+# ── 倒排索引（加速 BM25，持久化到文件）────────────────
+_INDEX_CACHE = VPATH.parent / "inverted_index.json"
+
+def _load_inverted_index():
+    if _INDEX_CACHE.exists():
+        try:
+            cached = json.loads(_INDEX_CACHE.read_text(encoding="utf-8"))
+            if len(cached) > 0:
+                return {k: set(v) for k, v in cached.items()}
+        except Exception:
+            pass
     index = {}
     for doc_idx, tokens in enumerate(DOC_TOKENS):
         for token in tokens:
             if token not in index:
                 index[token] = set()
             index[token].add(doc_idx)
+    _INDEX_CACHE.write_text(json.dumps(
+        {k: list(v) for k, v in index.items()}, ensure_ascii=False
+    ), encoding="utf-8")
     return index
 
-_INVERTED_INDEX = _build_inverted_index()
+_INVERTED_INDEX = _load_inverted_index()
 
 # ── 混合检索 ──────────────────────────────────────
 def search(text, k=10, book_filter=None, alpha=0.7):
