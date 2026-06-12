@@ -133,46 +133,20 @@ def _load_doc_tokens() -> list[set[str]]:
 
 DOC_TOKENS = _load_doc_tokens()
 
-# ── 倒排索引（加速 BM25，持久化到文件）────────────────
-_INDEX_CACHE = VPATH.parent / "inverted_index.json"
-
-def _load_inverted_index():
-    if _INDEX_CACHE.exists():
-        try:
-            cached = json.loads(_INDEX_CACHE.read_text(encoding="utf-8"))
-            if len(cached) > 0:
-                return {k: set(v) for k, v in cached.items()}
-        except Exception:
-            pass
-    index = {}
-    for doc_idx, tokens in enumerate(DOC_TOKENS):
-        for token in tokens:
-            if token not in index:
-                index[token] = set()
-            index[token].add(doc_idx)
-    _INDEX_CACHE.write_text(json.dumps(
-        {k: list(v) for k, v in index.items()}, ensure_ascii=False
-    ), encoding="utf-8")
-    return index
-
-_INVERTED_INDEX = _load_inverted_index()
-
 # ── 混合检索 ──────────────────────────────────────
 def search(text, k=10, book_filter=None, alpha=0.7):
     r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
     qvec = np.array(r.data[0].embedding, dtype=np.float32)
     qvec = qvec / np.linalg.norm(qvec)
     vec_scores = embeddings @ qvec
-    query_tokens = _tokenize(text)
+    query_tokens = set(_tokenize(text))
 
-    # 使用倒排索引加速 BM25
+    # BM25：用集合交集加速
     bm25_scores = np.zeros(len(documents), dtype=np.float32)
     if query_tokens:
-        for token in query_tokens:
-            if token in _INVERTED_INDEX:
-                for doc_idx in _INVERTED_INDEX[token]:
-                    bm25_scores[doc_idx] += 1.0
-        bm25_scores /= len(query_tokens)
+        q_len = len(query_tokens)
+        for doc_idx, dt in enumerate(DOC_TOKENS):
+            bm25_scores[doc_idx] = len(query_tokens & dt) / q_len
 
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores
     if book_filter and len(book_filter) < len(ALL_BOOKS):
