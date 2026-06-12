@@ -325,7 +325,7 @@ with mode[0]:
 # 模式二：自测刷题
 # ══════════════════════════════════════════════════
 with mode[1]:
-    st.markdown("输入知识点主题，系统从教材中检索相关内容并生成题目。")
+    st.markdown("输入知识点主题，系统从教材中检索相关内容并生成5道题。")
 
     col_topic, col_btn = st.columns([4, 1])
     with col_topic:
@@ -344,26 +344,48 @@ with mode[1]:
             hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=st.session_state.alpha)
             if hits:
                 user_msg = build_quiz_message(hits, quiz_topic.strip())
-                status.update(label="✅ 检索完成，正在生成题目…", state="complete")
-                quiz_ans = st.write_stream(
-                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=QUIZ_SYSTEM_PROMPT)
-                )
+                status.update(label="✅ 检索完成，正在生成5道题目…", state="complete")
+                quiz_raw = ""
+                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=QUIZ_SYSTEM_PROMPT):
+                    quiz_raw += chunk
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
-                quiz_ans = "未找到相关教材内容，请换个主题试试。"
-        st.session_state.hist.append({"q":f"[刷题] {quiz_topic.strip()}","hits":hits,"a":quiz_ans,"model":MODELS.get(selected_model,""),"mode":"刷题"})
+                quiz_raw = ""
+                st.warning("未找到相关教材内容，请换个主题试试。")
 
-    # 显示刷题历史
-    quiz_items = [h for h in st.session_state.hist if h.get("mode") == "刷题"]
-    if quiz_items:
-        st.markdown("---")
-        for item in reversed(quiz_items):
-            st.markdown(f'<div class="user-bubble">📝 {item["q"]}</div>', unsafe_allow_html=True)
-            if item["hits"]:
-                with st.expander("📚 查看参考来源", expanded=False):
-                    for h in item["hits"][:3]:
-                        st.markdown(f"- **{h['book']}**·{h['chapter'][:20]}")
-            st.markdown(f'<div class="ai-bubble">{item["a"]}</div>', unsafe_allow_html=True)
+        if quiz_raw:
+            # 解析题目和答案
+            import re as _re
+            questions, answers = [], []
+            parts = _re.split(r'===题目\d+===', quiz_raw)
+            ans_parts = _re.split(r'===答案\d+===', quiz_raw)
+            for i in range(1, len(ans_parts)):
+                answers.append(ans_parts[i].strip())
+            for i in range(1, len(parts)):
+                q_text = parts[i].split('===答案')[0].strip() if '===答案' in parts[i] else parts[i].strip()
+                questions.append(q_text)
+
+            st.session_state.quiz_questions = questions
+            st.session_state.quiz_answers = answers
+            st.session_state.quiz_topic = quiz_topic.strip()
+            st.session_state.quiz_revealed = [False] * len(questions)
+
+    # 显示题目
+    if "quiz_questions" in st.session_state and st.session_state.quiz_questions:
+        st.markdown(f"### 📝 {st.session_state.quiz_topic}")
+        for i, q in enumerate(st.session_state.quiz_questions):
+            st.markdown(f'<div class="ai-bubble"><strong>第 {i+1} 题</strong><br><br>{q}</div>', unsafe_allow_html=True)
+            if st.session_state.quiz_revealed[i]:
+                if i < len(st.session_state.quiz_answers):
+                    st.markdown(f'<div style="background:#e8f5e9;border-radius:10px;padding:1rem;margin:0.5rem 0;border-left:4px solid #4caf50;">{st.session_state.quiz_answers[i]}</div>', unsafe_allow_html=True)
+            else:
+                if st.button(f"👁️ 显示第 {i+1} 题答案", key=f"reveal_{i}"):
+                    st.session_state.quiz_revealed[i] = True
+                    st.rerun()
+        if not all(st.session_state.quiz_revealed):
+            if st.button("👁️ 显示全部答案", key="reveal_all"):
+                st.session_state.quiz_revealed = [True] * len(st.session_state.quiz_questions)
+                st.rerun()
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>📝 输入知识点主题开始刷题</h2>
