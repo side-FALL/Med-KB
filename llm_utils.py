@@ -3,6 +3,7 @@
 供 deploy/app.py 和 modelscope/app.py 导入，避免重复代码。
 """
 
+import json
 import re
 import requests
 
@@ -21,6 +22,73 @@ COMPACT_SYSTEM_PROMPT = (
     "你是医学知识助手。根据教材段落回答用户问题。"
     "要求：综合段落给出准确回答，标注来源，中文回答，列出参考来源。"
 )
+
+EXAM_SYSTEM_PROMPT = """你是医学知识助手。根据教材段落回答用户问题。
+
+要求：
+1. 综合多个段落信息，给出准确、有条理的回答
+2. 标注信息来源（如[1][2]）
+3. 如果检索结果不足，诚实说明
+4. 用中文回答，专业术语可附英文
+5. 回答末尾列出参考来源
+6. 用以下标记区分知识点重要性：
+   ⭐ 高频考点（执医/考研常考）
+   📌 核心知识点（必须掌握）
+   ⚠️ 易混淆点（容易出错）
+7. 回答末尾用"📋 考点清单"汇总本题涉及的重要知识点"""
+
+QUIZ_SYSTEM_PROMPT = """你是医学出题专家。根据教材段落生成高质量医学题目。
+
+要求：
+1. 生成1道单选题（4个选项A/B/C/D，1个正确答案）
+2. 题目考查核心知识点，干扰项需合理且有迷惑性
+3. 给出正确答案和详细解析
+4. 解析中标注知识点来源教材
+5. 用中文出题
+6. 按以下格式输出：
+
+【题目】
+...
+
+A. ...
+B. ...
+C. ...
+D. ...
+
+【正确答案】X
+
+【解析】
+..."""
+
+COMPARE_SYSTEM_PROMPT = """你是医学教学专家。对比两个医学概念的异同。
+
+要求：
+1. 从多个维度进行结构化对比（定义/病因/机制/临床表现/诊断/治疗等，根据概念类型选择合适维度）
+2. 用Markdown表格格式输出，表头为"维度 | 概念A | 概念B"
+3. 突出关键差异点，在差异最大的维度前加 ⭐ 标记
+4. 最后用1-2句话总结最核心的区别
+5. 标注信息来源教材"""
+
+CASE_SYSTEM_PROMPT = """你是临床医学教学专家。根据教材知识进行病例分析教学。
+
+要求：
+1. 按临床推理流程分步分析：
+   第一步【鉴别诊断】：列出3-5个可能的诊断，说明各自依据
+   第二步【辅助检查】：建议需要做哪些检查来确诊
+   第三步【诊断】：给出最可能的诊断及诊断依据
+   第四步【治疗】：给出治疗方案
+2. 每步引用教材段落作为依据（标注来源）
+3. 用中文回答，专业术语附英文
+4. 在关键临床思维处标注 ⭐ 考点"""
+
+MINDMAP_SYSTEM_PROMPT = """根据以下医学知识，生成Mermaid格式的思维导图。
+
+要求：
+1. 使用 mindmap 语法
+2. 层次清晰，不超过3层深度
+3. 突出核心概念和关键关系
+4. 用中文标注
+5. 只输出Mermaid语法，不要代码块标记，不要任何解释"""
 
 
 # ── 对话历史管理器 ────────────────────────────────────
@@ -107,8 +175,17 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "") -> str
         except Exception:
             pass  # fallback 到简单拼接
 
-    # 简单 fallback：拼接上一轮主题词 + 当前问题
-    return f"{prev} {query}"
+    # 简单 fallback：从上一轮提取核心名词短语
+    # 先去掉常见祈使句前缀（整体匹配）
+    prev_clean = re.sub(r"^(请|帮我|告诉我|介绍一下|讲讲|说说|解释一下|说明一下)\s*", "", prev)
+    prev_clean = re.sub(r"^(解释|说明)\s*", "", prev_clean)
+    prev_clean = re.sub(r"[？?。.！!，,、；;：:]+$", "", prev_clean).strip()
+    # 按 "的/了/在/是" 切分，取第一个有意义片段
+    parts = re.split(r"[的了在是]", prev_clean)
+    core = parts[0].strip() if parts else prev_clean[:20]
+    if core and len(core) > 1:
+        return f"{core} {query}"
+    return query
 
 
 # ── LLM 调用 ──────────────────────────────────────────
@@ -201,24 +278,70 @@ def call_llm_stream(
         r.raise_for_status()
         r.encoding = "utf-8"
 
-        buffer = ""
-        for chunk in r.iter_content(chunk_size=None, decode_unicode=True):
-            buffer += chunk
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                line = line.strip()
-                if not line or not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    break
-                try:
-                    import json
-                    delta = json.loads(data).get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
+        for line in r.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            line = line.strip()
+            if not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data.strip() == "[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+                choices = obj.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
                     if content:
                         yield content
-                except (ValueError, KeyError, IndexError):
-                    continue
+            except (json.JSONDecodeError, IndexError, KeyError):
+                continue
     except Exception as e:
         yield f"⚠️ 生成回答失败: {e}"
+
+
+# ── 新功能函数 ─────────────────────────────────────────
+
+def build_quiz_message(hits: list[dict], topic: str) -> str:
+    """构建刷题模式的用户消息。"""
+    ctx = "\n\n---\n\n".join(
+        f"[{i+1}] {h['book']}·{h['chapter']}\n{h['text']}"
+        for i, h in enumerate(hits[:5])
+    )
+    return f"教材段落:\n{ctx}\n\n请根据以上教材内容，围绕「{topic}」出1道单选题。"
+
+
+def build_compare_message(hits_a: list[dict], hits_b: list[dict], concept_a: str, concept_b: str) -> str:
+    """构建对比学习的用户消息。"""
+    ctx_a = "\n\n---\n\n".join(
+        f"[A{i+1}] {h['book']}·{h['chapter']}\n{h['text']}"
+        for i, h in enumerate(hits_a[:3])
+    )
+    ctx_b = "\n\n---\n\n".join(
+        f"[B{i+1}] {h['book']}·{h['chapter']}\n{h['text']}"
+        for i, h in enumerate(hits_b[:3])
+    )
+    return (
+        f"关于「{concept_a}」的教材段落:\n{ctx_a}\n\n"
+        f"关于「{concept_b}」的教材段落:\n{ctx_b}\n\n"
+        f"请对比「{concept_a}」和「{concept_b}」的异同。"
+    )
+
+
+def build_case_message(hits: list[dict], case_desc: str) -> str:
+    """构建病例分析的用户消息。"""
+    ctx = "\n\n---\n\n".join(
+        f"[{i+1}] {h['book']}·{h['chapter']}\n{h['text']}"
+        for i, h in enumerate(hits[:5])
+    )
+    return f"教材段落:\n{ctx}\n\n病例描述:\n{case_desc}\n\n请按临床推理流程分析此病例。"
+
+
+def build_mindmap_message(hits: list[dict], topic: str) -> str:
+    """构建思维导图的用户消息。"""
+    ctx = "\n\n---\n\n".join(
+        f"[{i+1}] {h['book']}·{h['chapter']}\n{h['text']}"
+        for i, h in enumerate(hits[:5])
+    )
+    return f"教材段落:\n{ctx}\n\n请为「{topic}」生成思维导图。"
