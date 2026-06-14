@@ -204,6 +204,83 @@ with st.sidebar:
 st.markdown(f'<h1 class="main-title">🏥 医学教材知识库 v{__version__}</h1>', unsafe_allow_html=True)
 st.markdown(f'<p class="main-subtitle">{book_count} 本教材 · {total_chunks} 个知识点 · 全免费 · 24h在线</p>', unsafe_allow_html=True)
 
+# ── 更新公告提示 ──────────────────────────────────────
+st.markdown("""
+<style>
+.tooltip-container {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+.tooltip-icon {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    background: rgba(255,255,255,0.3);
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: bold;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+.tooltip-content {
+    visibility: hidden;
+    width: 420px;
+    background: white;
+    color: #333;
+    border-radius: 12px;
+    padding: 1.2rem;
+    position: absolute;
+    z-index: 100;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 125%;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    text-align: left;
+}
+.tooltip-content h4 {
+    margin: 0 0 0.8rem 0;
+    color: #667eea;
+    font-size: 1rem;
+}
+.tooltip-content ul {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+.tooltip-content li {
+    margin-bottom: 0.3rem;
+}
+.tooltip-container:hover .tooltip-content {
+    visibility: visible;
+}
+</style>
+
+<div style="text-align:center; margin-bottom:1rem;">
+    <span class="tooltip-container">
+        <span class="tooltip-icon">?</span>
+        <div class="tooltip-content">
+            <h4>v2.1.3 更新公告</h4>
+            <p><strong>提示词全面优化：</strong></p>
+            <ul>
+                <li>智能问答：层次化结构、信息不足处理、避免臆测</li>
+                <li>考点标注：[高频][核心][易错][临床] 标记</li>
+                <li>自测刷题：难度分布（2基础+2理解+1应用）</li>
+                <li>对比学习：按概念类型动态选择对比维度</li>
+                <li>病例分析：5步流程 + 临床思维要点总结</li>
+            </ul>
+            <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
+                注意：考点标注、自测题、病例分析为AI生成，仅供参考
+            </p>
+        </div>
+    </span>
+</div>
+""", unsafe_allow_html=True)
+
 # ── 教材范围 + 模型选择 ──────────────────────────────
 col_scope, col_model = st.columns([3, 1])
 with col_scope:
