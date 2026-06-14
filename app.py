@@ -237,7 +237,7 @@ st.markdown("""
     z-index: 100;
     left: 50%;
     transform: translateX(-50%);
-    bottom: 125%;
+    top: 125%;
     box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     font-size: 0.85rem;
     line-height: 1.6;
