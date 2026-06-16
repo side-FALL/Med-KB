@@ -274,7 +274,7 @@ st.markdown("""
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v3.0.0 更新公告</h4>
+            <h4>v2.2.0 更新公告</h4>
             <p><strong>新增智能体模式：</strong></p>
             <ul>
                 <li>🤖 智能体模式：AI自动选择工具回答问题</li>
