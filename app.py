@@ -405,9 +405,13 @@ with mode[0]:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
                 user_msg = build_user_message(hits, q.strip(), conv_context if use_context else "")
-                ans = st.write_stream(
-                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use)
-                )
+                # 收集流式输出
+                ans = ""
+                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use):
+                    ans += chunk
+                # 修复 LaTeX 公式后显示
+                fixed_ans = fix_latex_formulas(ans)
+                st.markdown(fixed_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 ans = "未找到相关内容"
