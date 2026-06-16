@@ -11,8 +11,13 @@ from langchain_core.prompts import PromptTemplate
 try:
     from langchain.agents import AgentExecutor, create_react_agent
 except ImportError:
-    from langchain.agents.agent import AgentExecutor
-    from langchain.agents.react.agent import create_react_agent
+    try:
+        from langchain.agents.agent import AgentExecutor
+        from langchain.agents.react.agent import create_react_agent
+    except ImportError:
+        # 最后的 fallback
+        from langchain.agents import AgentExecutor
+        from langchain.agents import create_react_agent
 
 from tools import get_tools
 
