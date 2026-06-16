@@ -39,24 +39,38 @@ Question: {input}
 API_URL = "https://open.cherryin.net/v1/chat/completions"
 
 
-def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3) -> str:
-    """调用 LLM API"""
-    r = requests.post(
-        API_URL,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": 1500,
-        },
-        timeout=60,
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3, max_retries: int = 3) -> str:
+    """调用 LLM API，支持重试"""
+    import time
+
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(
+                API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": 1500,
+                },
+                timeout=180,  # 增加超时到 180 秒
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(2)  # 等待 2 秒后重试
+                continue
+            raise
+        except requests.exceptions.RequestException:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            raise
 
 
 def _parse_action(text: str) -> tuple[Optional[str], Optional[str]]:
