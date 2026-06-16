@@ -5,8 +5,14 @@ calculate dosages, look up lab values, compare concepts, and analyze cases.
 """
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
+
+# 兼容不同版本的 LangChain
+try:
+    from langchain.agents import AgentExecutor, create_react_agent
+except ImportError:
+    from langchain.agents.agent import AgentExecutor
+    from langchain.agents.react.agent import create_react_agent
 
 from tools import get_tools
 
