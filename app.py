@@ -646,7 +646,10 @@ with mode[4]:
 
                     # 显示最终回答
                     st.markdown("### 💡 最终回答")
-                    st.markdown(f'<div class="ai-bubble">{result["output"]}</div>', unsafe_allow_html=True)
+                    # 修复 LaTeX 公式后显示
+                    fixed_output = fix_latex_formulas(result["output"])
+                    st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
+                    st.markdown(fixed_output)
 
             # 保存到历史
             st.session_state.hist.append({
@@ -663,7 +666,10 @@ with mode[4]:
         st.markdown("---")
         for item in reversed(agent_items[-5:]):
             st.markdown(f'<div class="user-bubble">🤖 {item["q"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="ai-bubble">{item["a"]}</div>', unsafe_allow_html=True)
+            # 修复 LaTeX 公式后显示
+            fixed_answer = fix_latex_formulas(item["a"])
+            st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
+            st.markdown(fixed_answer)
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>🤖 输入问题开始智能体对话</h2>
