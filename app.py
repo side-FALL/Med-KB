@@ -495,10 +495,16 @@ with mode[1]:
     if "quiz_questions" in st.session_state and st.session_state.quiz_questions:
         st.markdown(f"### 📝 {st.session_state.quiz_topic_display}")
         for i, q in enumerate(st.session_state.quiz_questions):
-            st.markdown(f'<div class="ai-bubble"><strong>第 {i+1} 题</strong><br><br>{q}</div>', unsafe_allow_html=True)
+            # 修复 LaTeX 公式后显示题目
+            fixed_q = fix_latex_formulas(q)
+            st.markdown(f'<div class="ai-bubble"><strong>第 {i+1} 题</strong></div>', unsafe_allow_html=True)
+            st.markdown(fixed_q)
             if st.session_state.quiz_revealed[i]:
                 if i < len(st.session_state.quiz_answers):
-                    st.markdown(f'<div style="background:#e8f5e9;border-radius:10px;padding:1rem;margin:0.5rem 0;border-left:4px solid #4caf50;">{st.session_state.quiz_answers[i]}</div>', unsafe_allow_html=True)
+                    # 修复 LaTeX 公式后显示答案
+                    fixed_ans = fix_latex_formulas(st.session_state.quiz_answers[i])
+                    st.markdown(f'<div style="background:#e8f5e9;border-radius:10px;padding:1rem;margin:0.5rem 0;border-left:4px solid #4caf50;"></div>', unsafe_allow_html=True)
+                    st.markdown(fixed_ans)
             else:
                 if st.button(f"👁️ 显示第 {i+1} 题答案", key=f"reveal_{i}"):
                     st.session_state.quiz_revealed[i] = True
@@ -539,9 +545,13 @@ with mode[2]:
                 st.write(f"✅ {concept_a} 找到 {len(hits_a)} 条，{concept_b} 找到 {len(hits_b)} 条")
                 status.update(label="✅ 检索完成，正在生成对比…", state="complete")
                 user_msg = build_compare_message(hits_a, hits_b, concept_a.strip(), concept_b.strip())
-                cmp_ans = st.write_stream(
-                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=COMPARE_SYSTEM_PROMPT)
-                )
+                # 收集流式输出
+                cmp_ans = ""
+                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=COMPARE_SYSTEM_PROMPT):
+                    cmp_ans += chunk
+                # 修复 LaTeX 公式后显示
+                fixed_cmp_ans = fix_latex_formulas(cmp_ans)
+                st.markdown(fixed_cmp_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 cmp_ans = "未找到相关教材内容，请换个概念试试。"
@@ -554,7 +564,10 @@ with mode[2]:
         st.markdown("---")
         for item in reversed(cmp_items):
             st.markdown(f'<div class="user-bubble">🔄 {item["q"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="ai-bubble">{item["a"]}</div>', unsafe_allow_html=True)
+            # 修复 LaTeX 公式后显示
+            fixed_cmp = fix_latex_formulas(item["a"])
+            st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
+            st.markdown(fixed_cmp)
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>🔄 输入两个概念开始对比学习</h2>
@@ -583,9 +596,13 @@ with mode[3]:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，正在分析病例…", state="complete")
                 user_msg = build_case_message(hits, case_desc.strip())
-                case_ans = st.write_stream(
-                    call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=CASE_SYSTEM_PROMPT)
-                )
+                # 收集流式输出
+                case_ans = ""
+                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=CASE_SYSTEM_PROMPT):
+                    case_ans += chunk
+                # 修复 LaTeX 公式后显示
+                fixed_case_ans = fix_latex_formulas(case_ans)
+                st.markdown(fixed_case_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 case_ans = "未找到相关教材内容，请补充更多病例信息。"
@@ -601,7 +618,10 @@ with mode[3]:
                 with st.expander("📚 查看参考来源", expanded=False):
                     for h in item["hits"][:3]:
                         st.markdown(f"- **{h['book']}**·{h['chapter'][:20]}")
-            st.markdown(f'<div class="ai-bubble">{item["a"]}</div>', unsafe_allow_html=True)
+            # 修复 LaTeX 公式后显示
+            fixed_case = fix_latex_formulas(item["a"])
+            st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
+            st.markdown(fixed_case)
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>🏥 输入病例描述开始分析</h2>
