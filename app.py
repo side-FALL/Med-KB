@@ -16,18 +16,22 @@ def fix_latex_formulas(text: str) -> str:
     # 将 \[ ... \] 转换为 $$ ... $$
     text = re.sub(r'\\\[(.+?)\\\]', r'$$\1$$', text, flags=re.DOTALL)
 
-    # 将 [ ... ] 转换为 $$ ... $$ （仅当内容包含 LaTeX 命令时）
+    # 将 [ ... ] 转换为 $$ ... $$ （当内容包含 LaTeX 命令时）
+    # 匹配包含 \rightarrow, \text, _, ^ 等 LaTeX 特征的公式
     def replace_bracket_formula(match):
         content = match.group(1).strip()
-        # 检查是否包含 LaTeX 命令（如 \text, \rightarrow, _, ^ 等）
-        if re.search(r'\\(text|rightarrow|leftarrow|frac|sum|int|alpha|beta|gamma)', content) \
-                or re.search(r'[_^]\{', content):
-            # 清理 \text{} 包裹
-            content = re.sub(r'\\text\{([^}]*)\}', r'\1', content)
-            return f'$${content}$$'
-        return match.group(0)
+        # 清理 \text{} 包裹
+        content = re.sub(r'\\text\{([^}]*)\}', r'\1', content)
+        return f'$${content}$$'
 
-    text = re.sub(r'\[([^\[\]]{20,})\]', replace_bracket_formula, text, flags=re.DOTALL)
+    # 匹配包含 LaTeX 命令的方括号公式（允许嵌套括号）
+    # 模式：[ 开头，包含 \ 或 _ 或 ^，] 结尾
+    pattern = r'\[([^\]]*(?:\\(?:rightarrow|leftarrow|text|frac|sum|int)|[_^]\{)[^\]]*)\]'
+    text = re.sub(pattern, replace_bracket_formula, text)
+
+    # 通用模式：匹配较长的方括号内容（可能是公式）
+    pattern2 = r'\[([^\]]{30,})\]'
+    text = re.sub(pattern2, lambda m: f'$${m.group(1).strip()}$$' if '\\' in m.group(1) or '_' in m.group(1) or '^' in m.group(1) else m.group(0), text)
 
     return text
 
