@@ -1,0 +1,189 @@
+"""Medical Agent - 轻量版（不依赖 LangChain）
+
+使用 OpenAI API 直接实现 ReAct 模式，无需 LangChain。
+"""
+
+import json
+import os
+from typing import Optional
+
+import requests
+
+from tools import get_tools
+
+# ── ReAct Prompt ─────────────────────────────────────
+
+REACT_PROMPT = """你是一名医学教育智能助手，能够使用工具回答医学问题。
+
+可用工具：
+{tools_desc}
+
+请严格按以下格式回答（每次只能调用一个工具）：
+
+Thought: 思考应该采取什么行动
+Action: 工具名称
+Action Input: 工具输入参数（JSON格式）
+
+当你准备好最终回答时，使用：
+
+Thought: 我现在已经知道最终答案了
+Final Answer: 最终回答内容
+
+开始！
+
+Question: {input}
+"""
+
+# ── API 配置 ─────────────────────────────────────────
+
+API_URL = "https://open.cherryin.net/v1/chat/completions"
+
+
+def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3) -> str:
+    """调用 LLM API"""
+    r = requests.post(
+        API_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 1500,
+        },
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+
+def _parse_action(text: str) -> tuple[Optional[str], Optional[str]]:
+    """从 LLM 输出中解析 Action 和 Action Input"""
+    lines = text.strip().split("\n")
+    action = None
+    action_input = None
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("Action:"):
+            action = line[len("Action:"):].strip()
+        elif line.startswith("Action Input:"):
+            action_input = line[len("Action Input:"):].strip()
+
+    return action, action_input
+
+
+def _parse_final_answer(text: str) -> Optional[str]:
+    """从 LLM 输出中解析 Final Answer"""
+    if "Final Answer:" in text:
+        return text.split("Final Answer:")[1].strip()
+    return None
+
+
+def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash(free)", max_steps: int = 5) -> dict:
+    """运行轻量版 Agent（不依赖 LangChain）
+
+    Args:
+        query: 用户问题
+        api_key: API 密钥
+        model: 模型名称
+        max_steps: 最大推理步数
+
+    Returns:
+        dict: {"output": str, "steps": list, "error": str|None}
+    """
+    if not api_key:
+        return {"output": "", "steps": [], "error": "未配置 CS_API_KEY"}
+
+    try:
+        # 获取工具列表
+        tools = get_tools()
+        tools_desc = "\n".join([
+            f"- {t.name}: {t.description}" for t in tools
+        ])
+        tools_map = {t.name: t for t in tools}
+
+        # 初始化对话
+        messages = [
+            {
+                "role": "user",
+                "content": REACT_PROMPT.format(tools_desc=tools_desc, input=query)
+            }
+        ]
+
+        steps = []
+
+        for step in range(max_steps):
+            # 调用 LLM
+            response = _call_llm(api_key, messages, model)
+            messages.append({"role": "assistant", "content": response})
+
+            # 检查是否有 Final Answer
+            final_answer = _parse_final_answer(response)
+            if final_answer:
+                return {
+                    "output": final_answer,
+                    "steps": steps,
+                    "error": None,
+                }
+
+            # 解析 Action
+            action, action_input = _parse_action(response)
+
+            if not action:
+                # 没有 Action，把整个回复作为最终回答
+                return {
+                    "output": response,
+                    "steps": steps,
+                    "error": None,
+                }
+
+            # 执行工具
+            if action not in tools_map:
+                observation = f"错误：未知工具 '{action}'。可用工具：{', '.join(tools_map.keys())}"
+            else:
+                try:
+                    # 尝试解析 JSON 输入
+                    if action_input:
+                        try:
+                            input_dict = json.loads(action_input)
+                            if isinstance(input_dict, dict):
+                                # StructuredTool 需要关键字参数
+                                observation = tools_map[action].invoke(input_dict)
+                            else:
+                                observation = tools_map[action].invoke(action_input)
+                        except json.JSONDecodeError:
+                            observation = tools_map[action].invoke(action_input)
+                    else:
+                        observation = tools_map[action].invoke("")
+                except Exception as e:
+                    observation = f"工具执行出错：{e}"
+
+            # 记录步骤
+            steps.append({
+                "tool": action,
+                "input": action_input or "",
+                "output": str(observation)[:500],
+            })
+
+            # 将观察结果加入对话
+            messages.append({
+                "role": "user",
+                "content": f"Observation: {observation}\n\n请继续思考并给出回答。"
+            })
+
+        # 达到最大步数
+        return {
+            "output": "抱歉，达到最大推理步数未能得出结论。请尝试简化问题。",
+            "steps": steps,
+            "error": None,
+        }
+
+    except Exception as e:
+        return {
+            "output": "",
+            "steps": [],
+            "error": str(e),
+        }
