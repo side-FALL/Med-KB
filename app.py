@@ -6,6 +6,32 @@ from pathlib import Path
 
 from openai import OpenAI
 
+
+def fix_latex_formulas(text: str) -> str:
+    """修复LLM输出的LaTeX公式格式，使其兼容Streamlit渲染。
+
+    将 [ ... ] 格式的公式转换为 $$ ... $$
+    同时清理 \\text{} 包裹，简化化学式表示。
+    """
+    # 将 \[ ... \] 转换为 $$ ... $$
+    text = re.sub(r'\\\[(.+?)\\\]', r'$$\1$$', text, flags=re.DOTALL)
+
+    # 将 [ ... ] 转换为 $$ ... $$ （仅当内容包含 LaTeX 命令时）
+    def replace_bracket_formula(match):
+        content = match.group(1).strip()
+        # 检查是否包含 LaTeX 命令（如 \text, \rightarrow, _, ^ 等）
+        if re.search(r'\\(text|rightarrow|leftarrow|frac|sum|int|alpha|beta|gamma)', content) \
+                or re.search(r'[_^]\{', content):
+            # 清理 \text{} 包裹
+            content = re.sub(r'\\text\{([^}]*)\}', r'\1', content)
+            return f'$${content}$$'
+        return match.group(0)
+
+    text = re.sub(r'\[([^\[\]]{20,})\]', replace_bracket_formula, text, flags=re.DOTALL)
+
+    return text
+
+
 from llm_utils import (
     SYSTEM_PROMPT, COMPACT_SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT,
     QUIZ_SYSTEM_PROMPT, COMPARE_SYSTEM_PROMPT,
@@ -398,7 +424,10 @@ with mode[0]:
                     with cols[i%3]:
                         c = "🟢" if h.get("similarity",0)>0.8 else "🟡" if h.get("similarity",0)>0.6 else "🔴"
                         st.markdown(f'<div class="source-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;"><span class="source-book">{h["book"][:18]}</span><span class="source-score">{c} {h["similarity"]:.2f}</span></div><div style="color:#666;font-size:0.82rem;line-height:1.4;max-height:80px;overflow-y:auto;">{h["text"][:120]}…</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="ai-bubble"><strong>💡 {item.get("model","AI")}：</strong><br><br>{item["a"]}</div>', unsafe_allow_html=True)
+            # 修复 LaTeX 公式后显示
+            fixed_answer = fix_latex_formulas(item["a"])
+            st.markdown(f'<div class="ai-bubble"><strong>💡 {item.get("model","AI")}：</strong></div>', unsafe_allow_html=True)
+            st.markdown(fixed_answer)
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>👋 输入任何医学问题，AI从教材中检索回答</h2>
