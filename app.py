@@ -47,12 +47,14 @@ from llm_utils import (
 
 # 优先使用轻量版 Agent（不依赖 LangChain）
 try:
-    from agent_lite import run_agent
+    from agent_lite import run_agent, run_agent_stream
 except ImportError:
     try:
         from agent import run_agent
+        run_agent_stream = None
     except ImportError:
         run_agent = None
+        run_agent_stream = None
 
 from __init__ import __version__
 
@@ -648,37 +650,81 @@ with mode[4]:
         if agent_btn and agent_query.strip():
             with st.status("🤖 智能体思考中…", expanded=True) as status:
                 st.write("🧠 正在分析问题并选择工具…")
-                result = run_agent(agent_query.strip(), API_KEY, model=selected_model)
 
-                if result["error"]:
-                    status.update(label="❌ 出错了", state="error")
-                    st.error(f"智能体执行出错：{result['error']}")
-                else:
+                if run_agent_stream is not None:
+                    # 流式输出模式
+                    steps = []
+                    final_answer = ""
+
+                    for event in run_agent_stream(agent_query.strip(), API_KEY, model=selected_model):
+                        if event["type"] == "step":
+                            # 记录步骤
+                            steps.append(event["data"])
+                            st.write(f"🔧 使用工具: `{event['data']['tool']}`")
+                        elif event["type"] == "token":
+                            # 收集最终回答
+                            final_answer += event["data"]
+                        elif event["type"] == "error":
+                            status.update(label="❌ 出错了", state="error")
+                            st.error(f"智能体执行出错：{event['data']}")
+                            break
+
                     status.update(label="✅ 智能体完成", state="complete")
 
                     # 显示思考过程
-                    if result["steps"]:
+                    if steps:
                         st.markdown("### 🔍 思考过程")
-                        for i, step in enumerate(result["steps"]):
+                        for i, step in enumerate(steps):
                             with st.expander(f"步骤 {i+1}: 使用工具 `{step['tool']}`", expanded=False):
                                 st.markdown(f"**输入：** `{step['input']}`")
                                 st.markdown(f"**输出：**\n```\n{step['output'][:500]}\n```")
 
-                    # 显示最终回答
-                    st.markdown("### 💡 最终回答")
-                    # 修复 LaTeX 公式后显示
-                    fixed_output = fix_latex_formulas(result["output"])
-                    st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
-                    st.markdown(fixed_output)
+                    # 流式显示最终回答
+                    if final_answer:
+                        st.markdown("### 💡 最终回答")
+                        # 修复 LaTeX 公式
+                        fixed_output = fix_latex_formulas(final_answer)
+                        st.markdown(fixed_output)
 
-            # 保存到历史
-            st.session_state.hist.append({
-                "q": f"[智能体] {agent_query.strip()}",
-                "hits": [],
-                "a": result.get("output", ""),
-                "model": MODELS.get(selected_model, ""),
-                "mode": "智能体"
-            })
+                    # 保存到历史
+                    st.session_state.hist.append({
+                        "q": f"[智能体] {agent_query.strip()}",
+                        "hits": [],
+                        "a": final_answer,
+                        "model": MODELS.get(selected_model, ""),
+                        "mode": "智能体"
+                    })
+                else:
+                    # 降级到非流式模式
+                    result = run_agent(agent_query.strip(), API_KEY, model=selected_model)
+
+                    if result["error"]:
+                        status.update(label="❌ 出错了", state="error")
+                        st.error(f"智能体执行出错：{result['error']}")
+                    else:
+                        status.update(label="✅ 智能体完成", state="complete")
+
+                        # 显示思考过程
+                        if result["steps"]:
+                            st.markdown("### 🔍 思考过程")
+                            for i, step in enumerate(result["steps"]):
+                                with st.expander(f"步骤 {i+1}: 使用工具 `{step['tool']}`", expanded=False):
+                                    st.markdown(f"**输入：** `{step['input']}`")
+                                    st.markdown(f"**输出：**\n```\n{step['output'][:500]}\n```")
+
+                        # 显示最终回答
+                        st.markdown("### 💡 最终回答")
+                        fixed_output = fix_latex_formulas(result["output"])
+                        st.markdown(fixed_output)
+
+                    # 保存到历史
+                    st.session_state.hist.append({
+                        "q": f"[智能体] {agent_query.strip()}",
+                        "hits": [],
+                        "a": result.get("output", ""),
+                        "model": MODELS.get(selected_model, ""),
+                        "mode": "智能体"
+                    })
 
     # 显示智能体历史
     agent_items = [h for h in st.session_state.hist if h.get("mode") == "智能体"]

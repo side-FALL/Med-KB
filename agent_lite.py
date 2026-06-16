@@ -57,13 +57,13 @@ def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3
                     "temperature": temperature,
                     "max_tokens": 1500,
                 },
-                timeout=180,  # 增加超时到 180 秒
+                timeout=180,
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
         except requests.exceptions.Timeout:
             if attempt < max_retries - 1:
-                time.sleep(2)  # 等待 2 秒后重试
+                time.sleep(2)
                 continue
             raise
         except requests.exceptions.RequestException:
@@ -71,6 +71,65 @@ def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3
                 time.sleep(2)
                 continue
             raise
+
+
+def _call_llm_stream(api_key: str, messages: list, model: str, temperature: float = 0.3, max_retries: int = 3):
+    """流式调用 LLM API，yield 每个 token"""
+    import time
+
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(
+                API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": 1500,
+                    "stream": True,
+                },
+                timeout=180,
+                stream=True,
+            )
+            r.raise_for_status()
+            r.encoding = "utf-8"
+
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                    choices = obj.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+            return  # 成功完成，退出重试循环
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            yield f"⚠️ 请求超时，已重试 {max_retries} 次"
+            return
+        except requests.exceptions.RequestException:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            yield f"⚠️ 请求失败，已重试 {max_retries} 次"
+            return
 
 
 def _parse_action(text: str) -> tuple[Optional[str], Optional[str]]:
@@ -201,3 +260,97 @@ def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash
             "steps": [],
             "error": str(e),
         }
+
+
+def run_agent_stream(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash(free)", max_steps: int = 5):
+    """流式运行智能体，yield 每个 token
+
+    Yields:
+        dict: {"type": "step"|"token"|"error", "data": ...}
+            - "step": 推理步骤 {"tool": ..., "input": ..., "output": ...}
+            - "token": 最终回答的 token
+            - "error": 错误信息
+    """
+    if not api_key:
+        yield {"type": "error", "data": "未配置 CS_API_KEY"}
+        return
+
+    try:
+        # 获取工具列表
+        tools = get_tools()
+        tools_desc = "\n".join([
+            f"- {t.name}: {t.description}" for t in tools
+        ])
+        tools_map = {t.name: t for t in tools}
+
+        # 初始化对话
+        messages = [
+            {
+                "role": "user",
+                "content": REACT_PROMPT.format(tools_desc=tools_desc, input=query)
+            }
+        ]
+
+        for step in range(max_steps):
+            # 调用 LLM（非流式，用于推理阶段）
+            response = _call_llm(api_key, messages, model)
+            messages.append({"role": "assistant", "content": response})
+
+            # 检查是否有 Final Answer
+            final_answer = _parse_final_answer(response)
+            if final_answer:
+                # 流式输出最终回答
+                # 将 final_answer 分段 yield
+                for i in range(0, len(final_answer), 10):
+                    yield {"type": "token", "data": final_answer[i:i+10]}
+                return
+
+            # 解析 Action
+            action, action_input = _parse_action(response)
+
+            if not action:
+                # 没有 Action，把整个回复作为最终回答（流式）
+                for i in range(0, len(response), 10):
+                    yield {"type": "token", "data": response[i:i+10]}
+                return
+
+            # 执行工具
+            if action not in tools_map:
+                observation = f"错误：未知工具 '{action}'。可用工具：{', '.join(tools_map.keys())}"
+            else:
+                try:
+                    if action_input:
+                        try:
+                            input_dict = json.loads(action_input)
+                            if isinstance(input_dict, dict):
+                                observation = tools_map[action].invoke(input_dict)
+                            else:
+                                observation = tools_map[action].invoke(action_input)
+                        except json.JSONDecodeError:
+                            observation = tools_map[action].invoke(action_input)
+                    else:
+                        observation = tools_map[action].invoke("")
+                except Exception as e:
+                    observation = f"工具执行出错：{e}"
+
+            # 记录步骤
+            yield {
+                "type": "step",
+                "data": {
+                    "tool": action,
+                    "input": action_input or "",
+                    "output": str(observation)[:500],
+                }
+            }
+
+            # 将观察结果加入对话
+            messages.append({
+                "role": "user",
+                "content": f"Observation: {observation}\n\n请继续思考并给出回答。"
+            })
+
+        # 达到最大步数
+        yield {"type": "token", "data": "抱歉，达到最大推理步数未能得出结论。请尝试简化问题。"}
+
+    except Exception as e:
+        yield {"type": "error", "data": str(e)}
