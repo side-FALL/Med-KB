@@ -274,17 +274,18 @@ st.markdown("""
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.1.3 更新公告</h4>
-            <p><strong>提示词全面优化：</strong></p>
+            <h4>v3.0.0 更新公告</h4>
+            <p><strong>新增智能体模式：</strong></p>
             <ul>
-                <li>智能问答：层次化结构、信息不足处理、避免臆测</li>
-                <li>考点标注：[高频][核心][易错][临床] 标记</li>
-                <li>自测刷题：难度分布（2基础+2理解+1应用）</li>
-                <li>对比学习：按概念类型动态选择对比维度</li>
-                <li>病例分析：5步流程 + 临床思维要点总结</li>
+                <li>🤖 智能体模式：AI自动选择工具回答问题</li>
+                <li>📚 搜索教材：混合检索（向量+BM25）</li>
+                <li>💊 药物剂量计算：根据体重计算用量</li>
+                <li>🔬 检验正常值查询：25+常见项目</li>
+                <li>🔄 概念对比：结构化对比表格</li>
+                <li>🏥 病例分析：5步临床推理流程</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                注意：考点标注、自测题、病例分析为AI生成，仅供参考
+                智能体可自动选择合适的工具组合回答复杂问题
             </p>
         </div>
     </span>
