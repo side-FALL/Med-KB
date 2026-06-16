@@ -14,6 +14,7 @@ from llm_utils import (
     build_user_message, build_quiz_message, build_compare_message,
     build_case_message, build_mindmap_message,
 )
+from agent import run_agent
 from __init__ import __version__
 
 st.set_page_config(
@@ -312,7 +313,7 @@ if scope == "选择教材":
             st.warning("请至少选择一本教材")
 
 # ── 模式切换 ──────────────────────────────────────
-mode = st.tabs(["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析"])
+mode = st.tabs(["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式"])
 
 # ══════════════════════════════════════════════════
 # 模式一：智能问答
@@ -558,4 +559,63 @@ with mode[3]:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>🏥 输入病例描述开始分析</h2>
             <p style="margin-top:1rem;opacity:0.8">试试：患者男，65岁，反复胸闷气促2年，加重伴双下肢水肿1周</p>
+        </div>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════
+# 模式五：智能体模式（LangChain ReAct Agent）
+# ══════════════════════════════════════════════════
+with mode[4]:
+    st.markdown("🤖 **智能体模式**：AI会自动选择工具（搜索教材、计算剂量、查询正常值、对比概念、分析病例）来回答你的问题。")
+
+    col_agent_q, col_agent_btn = st.columns([6, 1])
+    with col_agent_q:
+        agent_query = st.text_input("输入问题",
+            placeholder="如：心衰患者用呋塞米的剂量是多少？白细胞正常值是多少？",
+            label_visibility="collapsed", key="agent_query")
+    with col_agent_btn:
+        agent_btn = st.button("🤖 开始", type="primary", use_container_width=True, key="agent_btn")
+
+    if agent_btn and agent_query.strip():
+        with st.status("🤖 智能体思考中…", expanded=True) as status:
+            st.write("🧠 正在分析问题并选择工具…")
+            result = run_agent(agent_query.strip(), API_KEY, model=selected_model)
+
+            if result["error"]:
+                status.update(label="❌ 出错了", state="error")
+                st.error(f"智能体执行出错：{result['error']}")
+            else:
+                status.update(label="✅ 智能体完成", state="complete")
+
+                # 显示思考过程
+                if result["steps"]:
+                    st.markdown("### 🔍 思考过程")
+                    for i, step in enumerate(result["steps"]):
+                        with st.expander(f"步骤 {i+1}: 使用工具 `{step['tool']}`", expanded=False):
+                            st.markdown(f"**输入：** `{step['input']}`")
+                            st.markdown(f"**输出：**\n```\n{step['output'][:500]}\n```")
+
+                # 显示最终回答
+                st.markdown("### 💡 最终回答")
+                st.markdown(f'<div class="ai-bubble">{result["output"]}</div>', unsafe_allow_html=True)
+
+        # 保存到历史
+        st.session_state.hist.append({
+            "q": f"[智能体] {agent_query.strip()}",
+            "hits": [],
+            "a": result.get("output", ""),
+            "model": MODELS.get(selected_model, ""),
+            "mode": "智能体"
+        })
+
+    # 显示智能体历史
+    agent_items = [h for h in st.session_state.hist if h.get("mode") == "智能体"]
+    if agent_items:
+        st.markdown("---")
+        for item in reversed(agent_items[-5:]):
+            st.markdown(f'<div class="user-bubble">🤖 {item["q"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="ai-bubble">{item["a"]}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
+            <h2>🤖 输入问题开始智能体对话</h2>
+            <p style="margin-top:1rem;opacity:0.8">试试：阿莫西林70kg成人用量 | 肌酐正常值 | 对比青霉素和头孢菌素</p>
         </div>""", unsafe_allow_html=True)
