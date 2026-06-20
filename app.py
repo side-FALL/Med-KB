@@ -756,9 +756,7 @@ with mode[4]:
                         "mode": "智能体"
                     })
 
-            # 清空输入框并刷新
-            st.session_state.agent_query = ""
-            st.rerun()
+            st.rerun()  # 刷新以显示新对话
 
         # 空对话提示
         if not st.session_state.agent_turns:
