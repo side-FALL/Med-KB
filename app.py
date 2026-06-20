@@ -306,18 +306,17 @@ st.markdown("""
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.0 更新公告</h4>
-            <p><strong>新增智能体模式：</strong></p>
+            <h4>v2.2.1 更新公告</h4>
+            <p><strong>新增置信度兜底与性能优化：</strong></p>
             <ul>
-                <li>🤖 智能体模式：AI自动选择工具回答问题</li>
-                <li>📚 搜索教材：混合检索（向量+BM25）</li>
-                <li>💊 药物剂量计算：根据体重计算用量</li>
-                <li>🔬 检验正常值查询：25+常见项目</li>
-                <li>🔄 概念对比：结构化对比表格</li>
-                <li>🏥 病例分析：5步临床推理流程</li>
+                <li>🛡️ 检索置信度评估：REJECT/LOW/MEDIUM/HIGH 四级</li>
+                <li>📊 LLM自评置信度：回答中标注高/中/低置信度</li>
+                <li>⚡ Embedding缓存：相同查询不重复调用API</li>
+                <li>💾 回答缓存：相同问题瞬间返回历史回答</li>
+                <li>🎨 医疗蓝UI：专业清爽的蓝白配色</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                智能体可自动选择合适的工具组合回答复杂问题
+                低置信度回答会显示警告提示，避免误导
             </p>
         </div>
     </span>
