@@ -307,16 +307,15 @@ st.markdown("""
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
             <h4>v2.2.1 更新公告</h4>
-            <p><strong>新增置信度兜底与性能优化：</strong></p>
+            <p><strong>智能体对话式改造 + 性能优化：</strong></p>
             <ul>
-                <li>🛡️ 检索置信度评估：REJECT/LOW/MEDIUM/HIGH 四级</li>
-                <li>📊 LLM自评置信度：回答中标注高/中/低置信度</li>
-                <li>⚡ Embedding缓存：相同查询不重复调用API</li>
-                <li>💾 回答缓存：相同问题瞬间返回历史回答</li>
-                <li>🎨 医疗蓝UI：专业清爽的蓝白配色</li>
+                <li>💬 智能体对话：支持多轮对话，自动保留上下文</li>
+                <li>🛡️ 置信度评估：低置信度回答会显示警告</li>
+                <li>⚡ 缓存优化：重复查询瞬间返回</li>
+                <li>🎨 浅蓝白UI：更清爽的界面风格</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                低置信度回答会显示警告提示，避免误导
+                智能体可结合前3轮对话理解代词（如"那这个药呢"）
             </p>
         </div>
     </span>
@@ -683,6 +682,7 @@ with mode[4]:
                     # 流式输出模式
                     steps = []
                     final_answer = ""
+                    has_error = False
 
                     # 传入对话历史
                     for event in run_agent_stream(
@@ -697,34 +697,36 @@ with mode[4]:
                         elif event["type"] == "error":
                             status.update(label="❌ 出错了", state="error")
                             st.error(f"智能体执行出错：{event['data']}")
+                            has_error = True
                             break
 
-                    status.update(label="✅ 智能体完成", state="complete")
+                    if not has_error:
+                        status.update(label="✅ 智能体完成", state="complete")
 
-                    # 显示思考过程
-                    if steps:
-                        with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
-                            for i, step in enumerate(steps):
-                                st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
-                                st.markdown(f"输入: `{step['input']}`")
-                                st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
+                        # 显示思考过程
+                        if steps:
+                            with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
+                                for i, step in enumerate(steps):
+                                    st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
+                                    st.markdown(f"输入: `{step['input']}`")
+                                    st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
 
-                    # 显示最终回答
-                    if final_answer:
-                        fixed_output = fix_latex_formulas(final_answer)
-                        st.markdown(fixed_output)
+                        # 显示最终回答
+                        if final_answer:
+                            fixed_output = fix_latex_formulas(final_answer)
+                            st.markdown(fixed_output)
 
-                    # 保存到对话历史
-                    st.session_state.agent_turns.append((query_text, final_answer, steps))
+                        # 保存到对话历史
+                        st.session_state.agent_turns.append((query_text, final_answer, steps))
 
-                    # 同时保存到全局历史（兼容搜索历史显示）
-                    st.session_state.hist.append({
-                        "q": f"[智能体] {query_text}",
-                        "hits": [],
-                        "a": final_answer,
-                        "model": MODELS.get(selected_model, ""),
-                        "mode": "智能体"
-                    })
+                        # 同时保存到全局历史（兼容搜索历史显示）
+                        st.session_state.hist.append({
+                            "q": f"[智能体] {query_text}",
+                            "hits": [],
+                            "a": final_answer,
+                            "model": MODELS.get(selected_model, ""),
+                            "mode": "智能体"
+                        })
                 else:
                     # 降级到非流式模式
                     result = run_agent(query_text, API_KEY, model=selected_model)
@@ -754,7 +756,9 @@ with mode[4]:
                         "mode": "智能体"
                     })
 
-            st.rerun()  # 刷新以显示新对话
+            # 清空输入框并刷新
+            st.session_state.agent_query = ""
+            st.rerun()
 
         # 空对话提示
         if not st.session_state.agent_turns:

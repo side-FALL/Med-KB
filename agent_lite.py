@@ -293,7 +293,7 @@ def run_agent_stream(
     api_key: str,
     model: str = "deepseek/deepseek-v4-flash(free)",
     max_steps: int = 5,
-    conversation_history: list[tuple[str, str]] | None = None,
+    conversation_history: Optional[list[tuple[str, str]]] = None,
 ):
     """流式运行智能体，yield 每个 token
 
