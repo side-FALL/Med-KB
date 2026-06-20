@@ -288,8 +288,21 @@ def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash
         }
 
 
-def run_agent_stream(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash(free)", max_steps: int = 5):
+def run_agent_stream(
+    query: str,
+    api_key: str,
+    model: str = "deepseek/deepseek-v4-flash(free)",
+    max_steps: int = 5,
+    conversation_history: list[tuple[str, str]] | None = None,
+):
     """流式运行智能体，yield 每个 token
+
+    Args:
+        query: 用户问题
+        api_key: API 密钥
+        model: 模型名称
+        max_steps: 最大推理步数
+        conversation_history: 对话历史 [(问题, 回答), ...]
 
     Yields:
         dict: {"type": "step"|"token"|"error", "data": ...}
@@ -309,11 +322,22 @@ def run_agent_stream(query: str, api_key: str, model: str = "deepseek/deepseek-v
         ])
         tools_map = {t.name: t for t in tools}
 
+        # 构建输入（含历史上下文）
+        input_text = query
+        if conversation_history:
+            recent = conversation_history[-3:]
+            history_lines = []
+            for q, a in recent:
+                history_lines.append(f"用户: {q}")
+                history_lines.append(f"助手: {a[:200]}")
+            history_text = "\n".join(history_lines)
+            input_text = f"对话历史:\n{history_text}\n\n当前问题: {query}"
+
         # 初始化对话
         messages = [
             {
                 "role": "user",
-                "content": REACT_PROMPT.format(tools_desc=tools_desc, input=query)
+                "content": REACT_PROMPT.format(tools_desc=tools_desc, input=input_text)
             }
         ]
 
