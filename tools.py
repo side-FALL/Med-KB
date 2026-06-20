@@ -42,6 +42,23 @@ def _get_embed_client() -> OpenAI:
     return _embed_client
 
 
+# ── Embedding 缓存 ──────────────────────────────────────
+_embedding_cache: dict[str, np.ndarray] = {}
+
+
+def _get_embedding(text: str) -> np.ndarray:
+    """获取文本的 embedding 向量（带缓存）"""
+    cache_key = text.strip()
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+    client = _get_embed_client()
+    r = client.embeddings.create(model="baai/bge-m3(free)", input=[text])
+    qvec = np.array(r.data[0].embedding, dtype=np.float32)
+    qvec = qvec / np.linalg.norm(qvec)
+    _embedding_cache[cache_key] = qvec
+    return qvec
+
+
 # ── BM25 tokenization (copied from app.py) ──────────────
 _STOPWORDS = set("的了是在不有我这个们他她它们和与或但而如果因为所以可以已经正在".replace(" ", ""))
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,}|[a-zA-Z]+|\d+")
@@ -116,10 +133,7 @@ def _hybrid_search(
     alpha: float = 0.7,
 ) -> list[dict]:
     """Perform hybrid vector + BM25 search."""
-    client = _get_embed_client()
-    r = client.embeddings.create(model="baai/bge-m3(free)", input=[text])
-    qvec = np.array(r.data[0].embedding, dtype=np.float32)
-    qvec = qvec / np.linalg.norm(qvec)
+    qvec = _get_embedding(text)
     vec_scores = embeddings @ qvec
 
     # Vector top-50 candidates

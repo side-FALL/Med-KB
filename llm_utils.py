@@ -29,6 +29,12 @@ $$2CH_3COSCoA + 6NAD^+ + 2FAD + 2ADP + 2P_i + 6H_2O \\rightarrow 4CO_2 + 6NADH +
 - 不要用 \\text{}，直接写化学式即可
 - 下标用 _（如 H_2O），上标用 ^（如 NAD^+）
 - 箭头用 \\rightarrow
+
+置信度标注（必须在回答末尾另起一行输出）：
+根据教材内容对回答的支撑程度，严格输出以下之一：
+CONFIDENCE: HIGH  （教材内容充分支撑回答，核心信息均有来源）
+CONFIDENCE: MEDIUM（部分信息来自推断，教材支撑有限）
+CONFIDENCE: LOW   （教材内容不足以回答，主要靠推断或常识）
 """
 
 COMPACT_SYSTEM_PROMPT = (
@@ -36,6 +42,7 @@ COMPACT_SYSTEM_PROMPT = (
     "要求：综合多段落给出准确回答，用中文作答，专业术语附英文，标注来源[1][2]，回答末尾列出参考教材。"
     "化学方程式和数学公式使用LaTeX格式：行内用 $...$，独立公式用 $$...$$。"
     "如果信息不足，诚实说明。"
+    "回答末尾另起一行输出置信度：CONFIDENCE: HIGH/MEDIUM/LOW（教材充分支撑选HIGH，部分推断选MEDIUM，主要靠推断选LOW）。"
 )
 
 EXAM_SYSTEM_PROMPT = """你是医学教育助手，基于教材段落回答问题，并标注考试重点。
@@ -51,6 +58,11 @@ EXAM_SYSTEM_PROMPT = """你是医学教育助手，基于教材段落回答问�
    [临床] 与临床实践直接相关的重要信息
 5. 回答末尾用"[考点清单]"汇总本题涉及的重要知识点
 6. 如果检索结果不足，明确说明并给出已有信息的初步回答
+
+置信度标注（必须在回答末尾另起一行输出）：
+CONFIDENCE: HIGH  （教材内容充分支撑回答）
+CONFIDENCE: MEDIUM（部分信息来自推断）
+CONFIDENCE: LOW   （教材内容不足以回答，主要靠推断）
 """
 
 QUIZ_SYSTEM_PROMPT = """你是医学出题专家，根据教材段落生成高质量医学题目。

@@ -69,23 +69,23 @@ st.markdown("""
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
-.stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+.stApp { background: linear-gradient(135deg, #1565C0 0%, #42A5F5 100%); min-height: 100vh; }
 .main .block-container { max-width: 900px; padding: 2rem 1rem; }
 .main-title { text-align:center; color:white; font-size:2.5rem; font-weight:800;
     margin-bottom:0.3rem; text-shadow:2px 2px 4px rgba(0,0,0,0.3); }
 .main-subtitle { text-align:center; color:rgba(255,255,255,0.85); font-size:0.95rem; margin-bottom:1.5rem; }
-.user-bubble { background:linear-gradient(135deg,#667eea,#764ba2); color:white;
+.user-bubble { background:linear-gradient(135deg,#1565C0,#42A5F5); color:white;
     border-radius:20px 20px 5px 20px; padding:1rem 1.5rem; margin:0.5rem 0 0.5rem auto;
-    max-width:80%; text-align:right; box-shadow:0 4px 15px rgba(102,126,234,0.4); }
+    max-width:80%; text-align:right; box-shadow:0 4px 15px rgba(21,101,192,0.4); }
 .ai-bubble { background:white; color:#333; border-radius:20px 20px 20px 5px;
     padding:1rem 1.5rem; margin:0.5rem auto 0.5rem 0; max-width:90%;
-    box-shadow:0 4px 15px rgba(0,0,0,0.1); border-left:4px solid #667eea; }
+    box-shadow:0 4px 15px rgba(0,0,0,0.1); border-left:4px solid #1565C0; }
 .source-card { background:rgba(255,255,255,0.95); border-radius:12px; padding:0.7rem 1rem;
-    margin:0.4rem 0; border-left:4px solid #667eea; box-shadow:0 2px 10px rgba(0,0,0,0.08);
+    margin:0.4rem 0; border-left:4px solid #1565C0; box-shadow:0 2px 10px rgba(0,0,0,0.08);
     transition: transform 0.2s; }
 .source-card:hover { transform: translateX(5px); }
-.source-book { font-weight:700; color:#667eea; font-size:0.85rem; }
-.source-score { background:linear-gradient(135deg,#667eea,#764ba2); color:white;
+.source-book { font-weight:700; color:#1565C0; font-size:0.85rem; }
+.source-score { background:linear-gradient(135deg,#1565C0,#42A5F5); color:white;
     padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; font-weight:600; }
 .stMultiSelect > div[data-baseweb="select"] { max-height: 80px !important; overflow-y: auto !important; }
 @media(max-width:768px){
@@ -153,6 +153,20 @@ MODELS = {
     "deepseek/deepseek-v3.2-250101(free)": "DeepSeek V3.2",
 }
 
+# ── Embedding 缓存 ──────────────────────────────────
+_embedding_cache: dict[str, np.ndarray] = {}
+
+def get_embedding(text: str) -> np.ndarray:
+    """获取文本的 embedding 向量（带缓存）"""
+    cache_key = text.strip()
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+    r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
+    qvec = np.array(r.data[0].embedding, dtype=np.float32)
+    qvec = qvec / np.linalg.norm(qvec)
+    _embedding_cache[cache_key] = qvec
+    return qvec
+
 # ── BM25 关键词检索 ──────────────────────────────────
 _STOPWORDS = set("的了是在不有我这个们他她它们和与或但而如果因为所以可以已经正在".replace(" ",""))
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,}|[a-zA-Z]+|\d+")
@@ -167,11 +181,40 @@ def _tokenize(text: str) -> list[str]:
             tokens.append(bg)
     return tokens
 
+# ── 检索置信度评估 ──────────────────────────────────
+def assess_retrieval_confidence(hits: list[dict]) -> tuple[str, float]:
+    """评估检索结果的置信度等级。
+
+    Returns:
+        (等级, 最高分) - 等级为 REJECT/LOW/MEDIUM/HIGH
+    """
+    if not hits:
+        return "REJECT", 0.0
+
+    scores = [h["similarity"] for h in hits]
+    max_score = max(scores)
+    top5_scores = scores[:5]
+    mean_top5 = sum(top5_scores) / len(top5_scores)
+    variance = sum((s - mean_top5) ** 2 for s in top5_scores) / len(top5_scores)
+
+    # 硬拒绝：最高分过低
+    if max_score < 0.45:
+        return "REJECT", max_score
+
+    # 弱匹配：最高分偏低，或分数分散（可能是噪声召回）
+    if max_score < 0.65 or (max_score < 0.75 and variance > 0.02):
+        return "LOW", max_score
+
+    # 中等置信度
+    if max_score < 0.80:
+        return "MEDIUM", max_score
+
+    return "HIGH", max_score
+
+
 # ── 混合检索 ──────────────────────────────────────
 def search(text, embeddings, documents, metadatas, k=10, alpha=0.7):
-    r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
-    qvec = np.array(r.data[0].embedding, dtype=np.float32)
-    qvec = qvec / np.linalg.norm(qvec)
+    qvec = get_embedding(text)
     vec_scores = embeddings @ qvec
 
     # 向量 top-50 候选
@@ -287,7 +330,7 @@ st.markdown("""
 }
 .tooltip-content h4 {
     margin: 0 0 0.8rem 0;
-    color: #667eea;
+    color: #1565C0;
     font-size: 1rem;
 }
 .tooltip-content ul {
@@ -375,51 +418,120 @@ with mode[0]:
     prompt_to_use = EXAM_SYSTEM_PROMPT if exam_toggle else COMPACT_SYSTEM_PROMPT
 
     if (search_btn or q.strip()) and q.strip():
-        # 加载选中教材的数据
-        books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
-        with st.status("📚 加载教材数据…", expanded=False) as status:
-            embeddings, documents, metadatas = load_selected_books(books_to_load)
-            if embeddings is None:
-                st.error("未加载到教材数据"); st.stop()
-            status.update(label=f"✅ 已加载 {len(books_to_load)} 本教材", state="complete")
+        query_text = q.strip()
 
-        conv_context = ""
-        if use_context and st.session_state.conversation_turns:
-            recent = st.session_state.conversation_turns[-3:]
-            lines = []
-            for turn_q, turn_a in recent:
-                lines.append(f"用户: {turn_q[:100]}")
-                lines.append(f"助手: {turn_a[:200]}")
-            conv_context = "\n".join(lines)
+        # 回答缓存：检查历史中是否有相同问题（问答模式）
+        cached_hit = None
+        for item in reversed(st.session_state.hist):
+            if item.get("mode") == "问答" and item.get("q") == query_text:
+                cached_hit = item
+                break
 
-        search_query = q.strip()
-        if use_context and st.session_state.conversation_turns:
-            prev_queries = [t[0] for t in st.session_state.conversation_turns]
-            rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
-            if rewritten != search_query:
-                search_query = rewritten
-                st.info(f"🔄 结合上下文重写查询：{rewritten}")
+        if cached_hit and not exam_toggle:
+            # 命中缓存，直接显示
+            st.info("📋 命中回答缓存")
+            hits = cached_hit.get("hits", [])
+            ans = cached_hit.get("a", "")
+            confidence_level = cached_hit.get("confidence_level", "HIGH")
+            confidence_score = cached_hit.get("confidence_score", 0.9)
 
-        with st.status("🔍 正在检索…", expanded=True) as status:
-            st.write("📝 文本向量化中…")
-            hits = search(search_query, embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
-                st.write(f"✅ 找到 {len(hits)} 条相关内容")
-                status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
-                user_msg = build_user_message(hits, q.strip(), conv_context if use_context else "")
-                # 收集流式输出
-                ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use):
-                    ans += chunk
-                # 修复 LaTeX 公式后显示
-                fixed_ans = fix_latex_formulas(ans)
-                st.markdown(fixed_ans)
-            else:
-                status.update(label="⚠️ 未找到相关内容", state="complete")
-                ans = "未找到相关内容"
-        st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS.get(selected_model,""),"mode":"问答"})
-        if use_context:
-            st.session_state.conversation_turns.append((q.strip(), ans))
+                st.markdown("**📚 参考来源（缓存）：**")
+                cols = st.columns(min(3, len(hits[:5])))
+                for i, h in enumerate(hits[:5]):
+                    with cols[i % 3]:
+                        c = "🟢" if h.get("similarity", 0) > 0.8 else "🟡" if h.get("similarity", 0) > 0.6 else "🔴"
+                        st.markdown(f'<div class="source-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;"><span class="source-book">{h["book"][:18]}</span><span class="source-score">{c} {h["similarity"]:.2f}</span></div><div style="color:#666;font-size:0.82rem;line-height:1.4;max-height:80px;overflow-y:auto;">{h["text"][:120]}…</div></div>', unsafe_allow_html=True)
+
+            fixed_ans = fix_latex_formulas(ans)
+            st.markdown(fixed_ans)
+            if confidence_level == "LOW":
+                st.markdown(f'<div style="background:#fff3cd;border-radius:6px;padding:0.4rem 0.8rem;margin:0.3rem 0;border-left:3px solid #ffc107;font-size:0.82rem;">⚠️ 低置信度 · 仅供参考</div>', unsafe_allow_html=True)
+        else:
+            # 正常检索流程
+            # 加载选中教材的数据
+            books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
+            with st.status("📚 加载教材数据…", expanded=False) as status:
+                embeddings, documents, metadatas = load_selected_books(books_to_load)
+                if embeddings is None:
+                    st.error("未加载到教材数据"); st.stop()
+                status.update(label=f"✅ 已加载 {len(books_to_load)} 本教材", state="complete")
+
+            conv_context = ""
+            if use_context and st.session_state.conversation_turns:
+                recent = st.session_state.conversation_turns[-3:]
+                lines = []
+                for turn_q, turn_a in recent:
+                    lines.append(f"用户: {turn_q[:100]}")
+                    lines.append(f"助手: {turn_a[:200]}")
+                conv_context = "\n".join(lines)
+
+            search_query = query_text
+            if use_context and st.session_state.conversation_turns:
+                prev_queries = [t[0] for t in st.session_state.conversation_turns]
+                rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
+                if rewritten != search_query:
+                    search_query = rewritten
+                    st.info(f"🔄 结合上下文重写查询：{rewritten}")
+
+            with st.status("🔍 正在检索…", expanded=True) as status:
+                st.write("📝 文本向量化中…")
+                hits = search(search_query, embeddings, documents, metadatas, k=top_k, alpha=alpha)
+
+                if not hits:
+                    status.update(label="⚠️ 未找到相关内容", state="complete")
+                    ans = "未找到相关内容"
+                    confidence_level = "REJECT"
+                    confidence_score = 0.0
+                else:
+                    # 第1层：检索置信度评估
+                    confidence_level, confidence_score = assess_retrieval_confidence(hits)
+                    st.write(f"✅ 找到 {len(hits)} 条相关内容 (置信度: {confidence_score:.2f})")
+
+                    if confidence_level == "REJECT":
+                        status.update(label="❌ 未找到相关内容", state="complete")
+                        ans = ""
+                        st.warning("您的问题与知识库内容关联度较低，建议尝试：\n- 换个问法\n- 使用更具体的医学术语\n- 确认问题是否在医学教材范围内")
+                    else:
+                        if confidence_level == "LOW":
+                            st.warning("⚠️ 检索结果置信度较低，以下回答仅供参考")
+
+                        status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
+                        user_msg = build_user_message(hits, query_text, conv_context if use_context else "")
+                        # 收集流式输出
+                        ans = ""
+                        for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use):
+                            ans += chunk
+                        # 修复 LaTeX 公式后显示
+                        fixed_ans = fix_latex_formulas(ans)
+                        st.markdown(fixed_ans)
+
+                        # 第2层：解析 LLM 自评置信度
+                        llm_confidence = "UNKNOWN"
+                        if "CONFIDENCE:" in ans:
+                            for label in ["HIGH", "MEDIUM", "LOW"]:
+                                if f"CONFIDENCE: {label}" in ans:
+                                    llm_confidence = label
+                                    # 从显示中移除置信度标签
+                                    ans = ans.replace(f"\nCONFIDENCE: {label}", "").replace(f"CONFIDENCE: {label}", "")
+                                    break
+
+                        # 显示置信度标签
+                        conf_icon = {"HIGH": "✅", "MEDIUM": "⚠️", "LOW": "⚠️"}.get(llm_confidence, "")
+                        conf_text = {"HIGH": "高置信度", "MEDIUM": "中等置信度", "LOW": "低置信度"}.get(llm_confidence, "")
+                        if conf_text:
+                            if llm_confidence == "LOW":
+                                st.markdown(f'<div style="background:#fff3cd;border-radius:8px;padding:0.6rem 1rem;margin:0.5rem 0;border-left:4px solid #ffc107;font-size:0.9rem;">{conf_icon} {conf_text} · 本回答部分基于推断，请谨慎参考</div>', unsafe_allow_html=True)
+                            elif llm_confidence == "MEDIUM":
+                                st.markdown(f'<div style="background:#e8f5e9;border-radius:8px;padding:0.6rem 1rem;margin:0.5rem 0;border-left:4px solid #4caf50;font-size:0.9rem;">{conf_text} · 教材支撑有限</div>', unsafe_allow_html=True)
+
+            st.session_state.hist.append({
+                "q": query_text, "hits": hits, "a": ans,
+                "model": MODELS.get(selected_model, ""), "mode": "问答",
+                "confidence_level": confidence_level, "confidence_score": confidence_score
+            })
+            if use_context:
+                st.session_state.conversation_turns.append((query_text, ans))
 
     # 显示问答历史（包含旧记录，兼容无 mode 字段的条目）
     qa_items = [h for h in st.session_state.hist if h.get("mode", "问答") == "问答"]
@@ -438,6 +550,10 @@ with mode[0]:
             fixed_answer = fix_latex_formulas(item["a"])
             st.markdown(f'<div class="ai-bubble"><strong>💡 {item.get("model","AI")}：</strong></div>', unsafe_allow_html=True)
             st.markdown(fixed_answer)
+            # 显示置信度标签（如有）
+            cl = item.get("confidence_level")
+            if cl == "LOW":
+                st.markdown(f'<div style="background:#fff3cd;border-radius:6px;padding:0.4rem 0.8rem;margin:0.3rem 0;border-left:3px solid #ffc107;font-size:0.82rem;">⚠️ 低置信度 · 仅供参考</div>', unsafe_allow_html=True)
     else:
         st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
             <h2>👋 输入任何医学问题，AI从教材中检索回答</h2>
