@@ -69,11 +69,11 @@ st.markdown("""
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
-.stApp { background: linear-gradient(135deg, #1565C0 0%, #42A5F5 100%); min-height: 100vh; }
+.stApp { background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 50%, #E1F5FE 100%); min-height: 100vh; }
 .main .block-container { max-width: 900px; padding: 2rem 1rem; }
-.main-title { text-align:center; color:white; font-size:2.5rem; font-weight:800;
-    margin-bottom:0.3rem; text-shadow:2px 2px 4px rgba(0,0,0,0.3); }
-.main-subtitle { text-align:center; color:rgba(255,255,255,0.85); font-size:0.95rem; margin-bottom:1.5rem; }
+.main-title { text-align:center; color:#1565C0; font-size:2.5rem; font-weight:800;
+    margin-bottom:0.3rem; text-shadow:1px 1px 2px rgba(0,0,0,0.1); }
+.main-subtitle { text-align:center; color:#42A5F5; font-size:0.95rem; margin-bottom:1.5rem; }
 .user-bubble { background:linear-gradient(135deg,#1565C0,#42A5F5); color:white;
     border-radius:20px 20px 5px 20px; padding:1rem 1.5rem; margin:0.5rem 0 0.5rem auto;
     max-width:80%; text-align:right; box-shadow:0 4px 15px rgba(21,101,192,0.4); }
