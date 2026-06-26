@@ -69,23 +69,23 @@ st.markdown("""
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
-.stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+.stApp { background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 50%, #E1F5FE 100%); min-height: 100vh; }
 .main .block-container { max-width: 900px; padding: 2rem 1rem; }
-.main-title { text-align:center; color:white; font-size:2.5rem; font-weight:800;
-    margin-bottom:0.3rem; text-shadow:2px 2px 4px rgba(0,0,0,0.3); }
-.main-subtitle { text-align:center; color:rgba(255,255,255,0.85); font-size:0.95rem; margin-bottom:1.5rem; }
-.user-bubble { background:linear-gradient(135deg,#667eea,#764ba2); color:white;
+.main-title { text-align:center; color:#1565C0; font-size:2.5rem; font-weight:800;
+    margin-bottom:0.3rem; text-shadow:1px 1px 2px rgba(0,0,0,0.1); }
+.main-subtitle { text-align:center; color:#42A5F5; font-size:0.95rem; margin-bottom:1.5rem; }
+.user-bubble { background:linear-gradient(135deg,#1565C0,#42A5F5); color:white;
     border-radius:20px 20px 5px 20px; padding:1rem 1.5rem; margin:0.5rem 0 0.5rem auto;
-    max-width:80%; text-align:right; box-shadow:0 4px 15px rgba(102,126,234,0.4); }
+    max-width:80%; text-align:right; box-shadow:0 4px 15px rgba(21,101,192,0.4); }
 .ai-bubble { background:white; color:#333; border-radius:20px 20px 20px 5px;
     padding:1rem 1.5rem; margin:0.5rem auto 0.5rem 0; max-width:90%;
-    box-shadow:0 4px 15px rgba(0,0,0,0.1); border-left:4px solid #667eea; }
+    box-shadow:0 4px 15px rgba(0,0,0,0.1); border-left:4px solid #1565C0; }
 .source-card { background:rgba(255,255,255,0.95); border-radius:12px; padding:0.7rem 1rem;
-    margin:0.4rem 0; border-left:4px solid #667eea; box-shadow:0 2px 10px rgba(0,0,0,0.08);
+    margin:0.4rem 0; border-left:4px solid #1565C0; box-shadow:0 2px 10px rgba(0,0,0,0.08);
     transition: transform 0.2s; }
 .source-card:hover { transform: translateX(5px); }
-.source-book { font-weight:700; color:#667eea; font-size:0.85rem; }
-.source-score { background:linear-gradient(135deg,#667eea,#764ba2); color:white;
+.source-book { font-weight:700; color:#1565C0; font-size:0.85rem; }
+.source-score { background:linear-gradient(135deg,#1565C0,#42A5F5); color:white;
     padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; font-weight:600; }
 .stMultiSelect > div[data-baseweb="select"] { max-height: 80px !important; overflow-y: auto !important; }
 @media(max-width:768px){
@@ -145,17 +145,125 @@ def load_selected_books(book_names: list[str]):
     return np.vstack(all_emb), all_docs, all_metas
 
 # ── API ───────────────────────────────────────────
-API_KEY = os.environ.get("CS_API_KEY","")
-if not API_KEY: st.error("未配置 CS_API_KEY"); st.stop()
-_embed = OpenAI(api_key=API_KEY, base_url="https://open.cherryin.net/v1")
-MODELS = {
-    "deepseek/deepseek-v4-flash(free)": "DeepSeek V4 Flash",
-    "deepseek/deepseek-v3.2-250101(free)": "DeepSeek V3.2",
+# 模型提供商配置
+MODEL_PROVIDERS = {
+    "cherryin": {
+        "base_url": "https://open.cherryin.net/v1/chat/completions",
+        "embed_url": "https://open.cherryin.net/v1",
+        "api_key_env": "CS_API_KEY",
+    },
+    "mimo": {
+        "base_url": "https://api.xiaomimimo.com/v1/chat/completions",
+        "embed_url": "https://api.xiaomimimo.com/v1",
+        "api_key_env": "MIMO_API_KEY",
+    },
+    "ark": {
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "embed_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "api_key_env": "ARK_API_KEY",
+    },
 }
+
+# 模型配置
+MODELS = {
+    "cherryin/deepseek-v4-flash": {
+        "name": "DeepSeek V4 Flash",
+        "provider": "cherryin",
+        "model_id": "deepseek/deepseek-v4-flash(free)",
+    },
+    "cherryin/deepseek-v3.2": {
+        "name": "DeepSeek V3.2",
+        "provider": "cherryin",
+        "model_id": "deepseek/deepseek-v3.2-250101(free)",
+    },
+    "mimo/mimo-v2.5": {
+        "name": "MiMo V2.5",
+        "provider": "mimo",
+        "model_id": "mimo-v2.5",
+    },
+    "ark/deepseek-v4-flash": {
+        "name": "DeepSeek V4 Flash (火山)",
+        "provider": "ark",
+        "model_id": "deepseek-v4-flash-260425",
+    },
+}
+
+# 降级顺序
+FALLBACK_ORDER = [
+    "cherryin/deepseek-v4-flash",
+    "mimo/mimo-v2.5",
+    "ark/deepseek-v4-flash",
+]
+
+# 获取 API Key
+def _get_api_key(provider: str) -> str:
+    """获取指定提供商的 API Key"""
+    env_var = MODEL_PROVIDERS[provider]["api_key_env"]
+    return os.environ.get(env_var, "")
+
+# 获取模型配置
+def _get_model_config(model_key: str) -> tuple:
+    """获取模型的 api_key, api_url, model_id"""
+    model_config = MODELS[model_key]
+    provider_config = MODEL_PROVIDERS[model_config["provider"]]
+    api_key = _get_api_key(model_config["provider"])
+    api_url = provider_config["base_url"]
+    model_id = model_config["model_id"]
+    return api_key, api_url, model_id
+
+# 带降级的 LLM 调用
+def call_llm_with_fallback(
+    selected_model: str,
+    user_msg: str,
+    system_prompt: str = "",
+    **kwargs
+) -> tuple:
+    """调用 LLM，失败时自动尝试其他模型。
+
+    Returns:
+        (answer, actual_model_name) 元组
+    """
+    # 构建尝试顺序：用户选择的模型 + 降级顺序
+    models_to_try = [selected_model] + [m for m in FALLBACK_ORDER if m != selected_model]
+
+    for model_key in models_to_try:
+        try:
+            api_key, api_url, model_id = _get_model_config(model_key)
+            if not api_key:
+                continue
+
+            # 收集流式输出
+            ans = ""
+            has_error = False
+            for chunk in call_llm_stream(api_key, user_msg, api_url=api_url, model=model_id, system_prompt=system_prompt, **kwargs):
+                if chunk.startswith("⚠️"):
+                    has_error = True
+                    break
+                ans += chunk
+
+            if not has_error and ans:
+                return ans, MODELS[model_key]["name"]
+        except Exception:
+            continue
+
+    return "⚠️ 所有模型都不可用，请稍后重试", "无"
+
+# 检查必需的 API Key
+CS_API_KEY = _get_api_key("cherryin")
+if not CS_API_KEY:
+    st.error("未配置 CS_API_KEY")
+    st.stop()
+
+# Embedding 客户端（使用 CherryIN）
+_embed = OpenAI(api_key=CS_API_KEY, base_url=MODEL_PROVIDERS["cherryin"]["embed_url"])
 
 # ── BM25 关键词检索 ──────────────────────────────────
 _STOPWORDS = set("的了是在不有我这个们他她它们和与或但而如果因为所以可以已经正在".replace(" ",""))
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,}|[a-zA-Z]+|\d+")
+
+# Embedding 缓存（LRU）
+_EMBED_CACHE: dict[str, np.ndarray] = {}
+_EMBED_CACHE_MAX = 1000
 
 def _tokenize(text: str) -> list[str]:
     text = re.sub(r"[的了是在不有我这个们]", " ", text)
@@ -169,9 +277,25 @@ def _tokenize(text: str) -> list[str]:
 
 # ── 混合检索 ──────────────────────────────────────
 def search(text, embeddings, documents, metadatas, k=10, alpha=0.7):
-    r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
-    qvec = np.array(r.data[0].embedding, dtype=np.float32)
-    qvec = qvec / np.linalg.norm(qvec)
+    import hashlib
+
+    # 检查 Embedding 缓存
+    cache_key = hashlib.md5(text.encode()).hexdigest()
+    if cache_key in _EMBED_CACHE:
+        qvec = _EMBED_CACHE[cache_key]
+    else:
+        try:
+            r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
+            qvec = np.array(r.data[0].embedding, dtype=np.float32)
+            qvec = qvec / np.linalg.norm(qvec)
+            # 更新缓存
+            if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+                _EMBED_CACHE.pop(next(iter(_EMBED_CACHE)))  # LRU 淘汰
+            _EMBED_CACHE[cache_key] = qvec
+        except Exception as e:
+            st.error(f"向量化失败: {e}")
+            return []
+
     vec_scores = embeddings @ qvec
 
     # 向量 top-50 候选
@@ -306,18 +430,16 @@ st.markdown("""
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.0 更新公告</h4>
-            <p><strong>新增智能体模式：</strong></p>
+            <h4>v2.2.1 更新公告</h4>
+            <p><strong>智能体对话式改造 + 性能优化：</strong></p>
             <ul>
-                <li>🤖 智能体模式：AI自动选择工具回答问题</li>
-                <li>📚 搜索教材：混合检索（向量+BM25）</li>
-                <li>💊 药物剂量计算：根据体重计算用量</li>
-                <li>🔬 检验正常值查询：25+常见项目</li>
-                <li>🔄 概念对比：结构化对比表格</li>
-                <li>🏥 病例分析：5步临床推理流程</li>
+                <li>💬 智能体对话：支持多轮对话，自动保留上下文</li>
+                <li>🛡️ 置信度评估：低置信度回答会显示警告</li>
+                <li>⚡ 缓存优化：重复查询瞬间返回</li>
+                <li>🎨 浅蓝白UI：更清爽的界面风格</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                智能体可自动选择合适的工具组合回答复杂问题
+                智能体可结合前3轮对话理解代词（如"那这个药呢"）
             </p>
         </div>
     </span>
@@ -330,7 +452,7 @@ with col_scope:
     scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed")
 with col_model:
     selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
-        format_func=lambda x: MODELS[x], label_visibility="collapsed")
+        format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
 
 selected_books = ALL_BOOKS
 if scope == "选择教材":
@@ -395,7 +517,13 @@ with mode[0]:
         search_query = q.strip()
         if use_context and st.session_state.conversation_turns:
             prev_queries = [t[0] for t in st.session_state.conversation_turns]
-            rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
+            # 获取当前模型的 API 配置
+            model_config = MODELS[selected_model]
+            provider_config = MODEL_PROVIDERS[model_config["provider"]]
+            api_key = _get_api_key(model_config["provider"])
+            api_url = provider_config["base_url"]
+            model_id = model_config["model_id"]
+            rewritten = rewrite_query(search_query, prev_queries, api_key=api_key, api_url=api_url, model=model_id)
             if rewritten != search_query:
                 search_query = rewritten
                 st.info(f"🔄 结合上下文重写查询：{rewritten}")
@@ -407,17 +535,17 @@ with mode[0]:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，AI 正在回答…", state="complete")
                 user_msg = build_user_message(hits, q.strip(), conv_context if use_context else "")
-                # 收集流式输出
-                ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use):
-                    ans += chunk
+                # 使用带降级的 LLM 调用
+                ans, actual_model = call_llm_with_fallback(selected_model, user_msg, system_prompt=prompt_to_use)
+                if actual_model != MODELS[selected_model]["name"]:
+                    st.info(f"⚠️ 已自动切换到 {actual_model}")
                 # 修复 LaTeX 公式后显示
                 fixed_ans = fix_latex_formulas(ans)
                 st.markdown(fixed_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 ans = "未找到相关内容"
-        st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS.get(selected_model,""),"mode":"问答"})
+        st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":actual_model if hits else "无","mode":"问答"})
         if use_context:
             st.session_state.conversation_turns.append((q.strip(), ans))
 
@@ -463,14 +591,21 @@ with mode[1]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 检索教材并出题…", expanded=True) as status:
             hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 user_msg = build_quiz_message(hits, quiz_topic.strip())
                 status.update(label="✅ 检索完成，正在生成5道题目…", state="complete")
-                quiz_raw = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=QUIZ_SYSTEM_PROMPT):
-                    quiz_raw += chunk
+                # 使用带降级的 LLM 调用
+                quiz_raw, actual_model = call_llm_with_fallback(selected_model, user_msg, system_prompt=QUIZ_SYSTEM_PROMPT)
+                if actual_model != MODELS[selected_model]["name"]:
+                    st.info(f"⚠️ 已自动切换到 {actual_model}")
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 quiz_raw = ""
@@ -540,6 +675,12 @@ with mode[2]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 分别检索两个概念…", expanded=True) as status:
             hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
@@ -547,18 +688,19 @@ with mode[2]:
                 st.write(f"✅ {concept_a} 找到 {len(hits_a)} 条，{concept_b} 找到 {len(hits_b)} 条")
                 status.update(label="✅ 检索完成，正在生成对比…", state="complete")
                 user_msg = build_compare_message(hits_a, hits_b, concept_a.strip(), concept_b.strip())
-                # 收集流式输出
-                cmp_ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=COMPARE_SYSTEM_PROMPT):
-                    cmp_ans += chunk
+                # 使用带降级的 LLM 调用
+                cmp_ans, actual_model = call_llm_with_fallback(selected_model, user_msg, system_prompt=COMPARE_SYSTEM_PROMPT)
+                if actual_model != MODELS[selected_model]["name"]:
+                    st.info(f"⚠️ 已自动切换到 {actual_model}")
                 # 修复 LaTeX 公式后显示
                 fixed_cmp_ans = fix_latex_formulas(cmp_ans)
                 st.markdown(fixed_cmp_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 cmp_ans = "未找到相关教材内容，请换个概念试试。"
+                actual_model = "无"
         all_hits = (hits_a or []) + (hits_b or [])
-        st.session_state.hist.append({"q":f"[对比] {concept_a} vs {concept_b}","hits":all_hits,"a":cmp_ans,"model":MODELS.get(selected_model,""),"mode":"对比"})
+        st.session_state.hist.append({"q":f"[对比] {concept_a} vs {concept_b}","hits":all_hits,"a":cmp_ans,"model":actual_model,"mode":"对比"})
 
     # 显示对比历史
     cmp_items = [h for h in st.session_state.hist if h.get("mode") == "对比"]
@@ -592,23 +734,30 @@ with mode[3]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 检索相关教材…", expanded=True) as status:
             hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成，正在分析病例…", state="complete")
                 user_msg = build_case_message(hits, case_desc.strip())
-                # 收集流式输出
-                case_ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=CASE_SYSTEM_PROMPT):
-                    case_ans += chunk
+                # 使用带降级的 LLM 调用
+                case_ans, actual_model = call_llm_with_fallback(selected_model, user_msg, system_prompt=CASE_SYSTEM_PROMPT)
+                if actual_model != MODELS[selected_model]["name"]:
+                    st.info(f"⚠️ 已自动切换到 {actual_model}")
                 # 修复 LaTeX 公式后显示
                 fixed_case_ans = fix_latex_formulas(case_ans)
                 st.markdown(fixed_case_ans)
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 case_ans = "未找到相关教材内容，请补充更多病例信息。"
-        st.session_state.hist.append({"q":f"[病例] {case_desc.strip()[:50]}…","hits":hits,"a":case_ans,"model":MODELS.get(selected_model,""),"mode":"病例"})
+                actual_model = "无"
+        st.session_state.hist.append({"q":f"[病例] {case_desc.strip()[:50]}…","hits":hits,"a":case_ans,"model":actual_model,"mode":"病例"})
 
     # 显示病例历史
     case_items = [h for h in st.session_state.hist if h.get("mode") == "病例"]
@@ -631,23 +780,59 @@ with mode[3]:
         </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════
-# 模式五：智能体模式（ReAct Agent）
+# 模式五：智能体模式（ReAct Agent - 对话式）
 # ══════════════════════════════════════════════════
 with mode[4]:
-    st.markdown("🤖 **智能体模式**：AI会自动选择工具（搜索教材、计算剂量、查询正常值、对比概念、分析病例）来回答你的问题。")
+    st.markdown("🤖 **智能体模式**：AI会自动选择工具（搜索教材、计算剂量、查询正常值、对比概念、病例分析）来回答你的问题。支持多轮对话。")
 
     if run_agent is None:
         st.error("⚠️ 智能体模块加载失败，请检查依赖是否安装正确。")
     else:
+        # 初始化对话历史
+        if "agent_turns" not in st.session_state:
+            st.session_state.agent_turns = []  # [(query, answer, steps)]
+
+        # 清空对话按钮
+        col_agent_header, col_agent_clear = st.columns([4, 1])
+        with col_agent_header:
+            turns_count = len(st.session_state.agent_turns)
+            if turns_count > 0:
+                st.caption(f"💬 已进行 {turns_count} 轮对话")
+        with col_agent_clear:
+            if st.button("🗑️ 清空对话", use_container_width=True, key="clear_agent"):
+                st.session_state.agent_turns = []
+                st.rerun()
+
+        # 显示历史对话
+        for i, (q, a, steps) in enumerate(st.session_state.agent_turns):
+            st.markdown(f'<div class="user-bubble">❓ {q}</div>', unsafe_allow_html=True)
+            if steps:
+                with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
+                    for j, step in enumerate(steps):
+                        st.markdown(f"**步骤 {j+1}:** `{step['tool']}` → {step['output'][:100]}...")
+            fixed_a = fix_latex_formulas(a)
+            st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
+            st.markdown(fixed_a)
+
+        # 输入区域
         col_agent_q, col_agent_btn = st.columns([6, 1])
         with col_agent_q:
             agent_query = st.text_input("输入问题",
                 placeholder="如：心衰患者用呋塞米的剂量是多少？白细胞正常值是多少？",
                 label_visibility="collapsed", key="agent_query")
         with col_agent_btn:
-            agent_btn = st.button("🤖 开始", type="primary", use_container_width=True, key="agent_btn")
+            agent_btn = st.button("🤖 发送", type="primary", use_container_width=True, key="agent_btn")
 
         if agent_btn and agent_query.strip():
+            query_text = agent_query.strip()
+
+            # 获取当前模型的 API 配置
+            model_config = MODELS[selected_model]
+            provider_config = MODEL_PROVIDERS[model_config["provider"]]
+            api_key = _get_api_key(model_config["provider"])
+            api_url = provider_config["base_url"]
+            model_id = model_config["model_id"]
+
             with st.status("🤖 智能体思考中…", expanded=True) as status:
                 st.write("🧠 正在分析问题并选择工具…")
 
@@ -655,48 +840,54 @@ with mode[4]:
                     # 流式输出模式
                     steps = []
                     final_answer = ""
+                    has_error = False
 
-                    for event in run_agent_stream(agent_query.strip(), API_KEY, model=selected_model):
+                    # 传入对话历史
+                    for event in run_agent_stream(
+                        query_text, api_key, model=model_id, api_url=api_url,
+                        conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns]
+                    ):
                         if event["type"] == "step":
-                            # 记录步骤
                             steps.append(event["data"])
                             st.write(f"🔧 使用工具: `{event['data']['tool']}`")
                         elif event["type"] == "token":
-                            # 收集最终回答
                             final_answer += event["data"]
                         elif event["type"] == "error":
                             status.update(label="❌ 出错了", state="error")
                             st.error(f"智能体执行出错：{event['data']}")
+                            has_error = True
                             break
 
-                    status.update(label="✅ 智能体完成", state="complete")
+                    if not has_error:
+                        status.update(label="✅ 智能体完成", state="complete")
 
-                    # 显示思考过程
-                    if steps:
-                        st.markdown("### 🔍 思考过程")
-                        for i, step in enumerate(steps):
-                            with st.expander(f"步骤 {i+1}: 使用工具 `{step['tool']}`", expanded=False):
-                                st.markdown(f"**输入：** `{step['input']}`")
-                                st.markdown(f"**输出：**\n```\n{step['output'][:500]}\n```")
+                        # 显示思考过程
+                        if steps:
+                            with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
+                                for i, step in enumerate(steps):
+                                    st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
+                                    st.markdown(f"输入: `{step['input']}`")
+                                    st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
 
-                    # 流式显示最终回答
-                    if final_answer:
-                        st.markdown("### 💡 最终回答")
-                        # 修复 LaTeX 公式
-                        fixed_output = fix_latex_formulas(final_answer)
-                        st.markdown(fixed_output)
+                        # 显示最终回答
+                        if final_answer:
+                            fixed_output = fix_latex_formulas(final_answer)
+                            st.markdown(fixed_output)
 
-                    # 保存到历史
-                    st.session_state.hist.append({
-                        "q": f"[智能体] {agent_query.strip()}",
-                        "hits": [],
-                        "a": final_answer,
-                        "model": MODELS.get(selected_model, ""),
-                        "mode": "智能体"
-                    })
+                        # 保存到对话历史
+                        st.session_state.agent_turns.append((query_text, final_answer, steps))
+
+                        # 同时保存到全局历史（兼容搜索历史显示）
+                        st.session_state.hist.append({
+                            "q": f"[智能体] {query_text}",
+                            "hits": [],
+                            "a": final_answer,
+                            "model": MODELS[selected_model]["name"],
+                            "mode": "智能体"
+                        })
                 else:
                     # 降级到非流式模式
-                    result = run_agent(agent_query.strip(), API_KEY, model=selected_model)
+                    result = run_agent(query_text, api_key, model=model_id, api_url=api_url)
 
                     if result["error"]:
                         status.update(label="❌ 出错了", state="error")
@@ -704,40 +895,30 @@ with mode[4]:
                     else:
                         status.update(label="✅ 智能体完成", state="complete")
 
-                        # 显示思考过程
                         if result["steps"]:
-                            st.markdown("### 🔍 思考过程")
-                            for i, step in enumerate(result["steps"]):
-                                with st.expander(f"步骤 {i+1}: 使用工具 `{step['tool']}`", expanded=False):
-                                    st.markdown(f"**输入：** `{step['input']}`")
-                                    st.markdown(f"**输出：**\n```\n{step['output'][:500]}\n```")
+                            with st.expander(f"🔍 查看思考过程（{len(result['steps'])} 步）", expanded=False):
+                                for i, step in enumerate(result["steps"]):
+                                    st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
+                                    st.markdown(f"输入: `{step['input']}`")
+                                    st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
 
-                        # 显示最终回答
-                        st.markdown("### 💡 最终回答")
                         fixed_output = fix_latex_formulas(result["output"])
                         st.markdown(fixed_output)
 
-                    # 保存到历史
+                    st.session_state.agent_turns.append((query_text, result.get("output", ""), result.get("steps", [])))
                     st.session_state.hist.append({
-                        "q": f"[智能体] {agent_query.strip()}",
+                        "q": f"[智能体] {query_text}",
                         "hits": [],
                         "a": result.get("output", ""),
-                        "model": MODELS.get(selected_model, ""),
+                        "model": MODELS[selected_model]["name"],
                         "mode": "智能体"
                     })
 
-    # 显示智能体历史
-    agent_items = [h for h in st.session_state.hist if h.get("mode") == "智能体"]
-    if agent_items:
-        st.markdown("---")
-        for item in reversed(agent_items[-5:]):
-            st.markdown(f'<div class="user-bubble">🤖 {item["q"]}</div>', unsafe_allow_html=True)
-            # 修复 LaTeX 公式后显示
-            fixed_answer = fix_latex_formulas(item["a"])
-            st.markdown(f'<div class="ai-bubble"></div>', unsafe_allow_html=True)
-            st.markdown(fixed_answer)
-    else:
-        st.markdown("""<div style="text-align:center;padding:3rem;color:rgba(255,255,255,0.8);">
-            <h2>🤖 输入问题开始智能体对话</h2>
-            <p style="margin-top:1rem;opacity:0.8">试试：阿莫西林70kg成人用量 | 肌酐正常值 | 对比青霉素和头孢菌素</p>
-        </div>""", unsafe_allow_html=True)
+            st.rerun()  # 刷新以显示新对话
+
+        # 空对话提示
+        if not st.session_state.agent_turns:
+            st.markdown("""<div style="text-align:center;padding:2rem;color:rgba(0,0,0,0.5);">
+                <h3>🤖 输入问题开始智能体对话</h3>
+                <p style="margin-top:0.5rem;">试试：阿莫西林70kg成人用量 | 肌酐正常值 | 对比青霉素和头孢菌素</p>
+            </div>""", unsafe_allow_html=True)

@@ -162,12 +162,24 @@ class ConversationHistory:
         self.history.clear()
 
 
+# ── LLM 调用 ──────────────────────────────────────────
+
+DEFAULT_API_URL = "https://open.cherryin.net/v1/chat/completions"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash(free)"
+
+
 # ── 查询重写（追问优化） ──────────────────────────────
 
 # 代词/指代词列表，用于判断是否需要重写
 _PRONOUNS = re.compile(r"(它|这个|那个|其|上述|前面|上一|该|此|该病|该疾)")
 
-def rewrite_query(query: str, prev_queries: list[str], api_key: str = "") -> str:
+def rewrite_query(
+    query: str,
+    prev_queries: list[str],
+    api_key: str = "",
+    api_url: str = DEFAULT_API_URL,
+    model: str = DEFAULT_MODEL,
+) -> str:
     """当用户追问含代词时，结合上一个问题重写检索词。
 
     例如：上一轮 "股三角"，本轮 "它的边界有哪些"
@@ -184,13 +196,13 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "") -> str
     if api_key:
         try:
             r = requests.post(
-                "https://open.cherryin.net/v1/chat/completions",
+                api_url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "deepseek/deepseek-v4-flash(free)",
+                    "model": model,
                     "messages": [
                         {
                             "role": "user",
@@ -205,7 +217,7 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "") -> str
                     "temperature": 0.0,
                     "max_tokens": 100,
                 },
-                timeout=15,
+                timeout=30,
             )
             if r.status_code == 200:
                 rewritten = r.json()["choices"][0]["message"]["content"].strip().strip('"\'')
@@ -226,11 +238,6 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "") -> str
         return f"{core} {query}"
     return query
 
-
-# ── LLM 调用 ──────────────────────────────────────────
-
-DEFAULT_API_URL = "https://open.cherryin.net/v1/chat/completions"
-DEFAULT_MODEL = "deepseek/deepseek-v4-flash(free)"
 
 
 def build_user_message(hits: list[dict], query: str, conv_context: str = "") -> str:
@@ -256,31 +263,43 @@ def call_llm(
     system_prompt: str = SYSTEM_PROMPT,
     temperature: float = 0.3,
     max_tokens: int = 2000,
-    timeout: int = 90,
+    timeout: int = 30,
+    max_retries: int = 2,
 ) -> str:
     """调用 OpenAI-compatible Chat API 生成回答（非流式）。"""
-    try:
-        r = requests.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_msg},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"⚠️ 生成回答失败: {e}"
+    import time
+
+    for attempt in range(max_retries + 1):
+        try:
+            r = requests.post(
+                api_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+        except requests.exceptions.Timeout:
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)  # 指数退避
+                continue
+            return "⚠️ 请求超时，请稍后重试"
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(1)
+                continue
+            return f"⚠️ 生成回答失败: {e}"
 
 
 def call_llm_stream(
@@ -291,9 +310,11 @@ def call_llm_stream(
     system_prompt: str = SYSTEM_PROMPT,
     temperature: float = 0.3,
     max_tokens: int = 2000,
-    timeout: int = 120,
+    timeout: int = 30,
 ):
     """流式调用 Chat API，逐 token 生成。yield 每个文本片段。"""
+    import time
+
     try:
         r = requests.post(
             api_url,
@@ -317,7 +338,14 @@ def call_llm_stream(
         r.raise_for_status()
         r.encoding = "utf-8"
 
+        last_activity = time.time()
         for line in r.iter_lines(decode_unicode=True):
+            # 检查读取超时（30秒无数据则超时）
+            if time.time() - last_activity > 30:
+                yield "⚠️ 流式响应超时，请重试"
+                return
+            last_activity = time.time()
+
             if not line:
                 continue
             line = line.strip()
@@ -336,6 +364,8 @@ def call_llm_stream(
                         yield content
             except (json.JSONDecodeError, IndexError, KeyError):
                 continue
+    except requests.exceptions.Timeout:
+        yield "⚠️ 请求超时，请稍后重试"
     except Exception as e:
         yield f"⚠️ 生成回答失败: {e}"
 

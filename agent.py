@@ -98,13 +98,19 @@ def create_medical_agent(
     return executor
 
 
-def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash(free)") -> dict:
+def run_agent(
+    query: str,
+    api_key: str,
+    model: str = "deepseek/deepseek-v4-flash(free)",
+    api_url: str = "https://open.cherryin.net/v1",
+) -> dict:
     """Run the medical agent with a query.
 
     Args:
         query: The medical question or case description.
         api_key: API key for the LLM service.
         model: Model identifier (default: DeepSeek V4 Flash free).
+        api_url: API base URL (default: CherryIN endpoint).
 
     Returns:
         A dict with keys:
@@ -113,7 +119,7 @@ def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash
             - 'error': Error message if any, else None.
     """
     try:
-        executor = create_medical_agent(api_key, model=model)
+        executor = create_medical_agent(api_key, model=model, base_url=api_url)
         result = executor.invoke({"input": query})
 
         # Extract intermediate steps for UI display
