@@ -178,11 +178,6 @@ MODELS = {
         "provider": "cherryin",
         "model_id": "deepseek/deepseek-v4-flash(free)",
     },
-    "cherryin/deepseek-v3.2": {
-        "name": "DeepSeek V3.2",
-        "provider": "cherryin",
-        "model_id": "deepseek/deepseek-v3.2-250101(free)",
-    },
     "mimo/mimo-v2.5": {
         "name": "MiMo V2.5",
         "provider": "mimo",
@@ -234,23 +229,25 @@ def _tokenize(text: str) -> list[str]:
             tokens.append(bg)
     return tokens
 
+# ── Embedding 缓存（Streamlit 持久化） ──────────────
+@st.cache_data(max_entries=500, ttl=3600*24)
+def get_embedding(text: str) -> bytes:
+    """获取 Embedding 向量，使用 Streamlit 缓存持久化"""
+    try:
+        r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
+        vec = np.array(r.data[0].embedding, dtype=np.float32)
+        return (vec / np.linalg.norm(vec)).tobytes()
+    except Exception as e:
+        st.error(f"向量化失败: {e}")
+        return b""
+
 # ── 混合检索 ──────────────────────────────────────
 def search(text, embeddings, documents, metadatas, k=10, alpha=0.7):
-    import hashlib
-
-    # 检查 Embedding 缓存
-    cache_key = hashlib.md5(text.encode()).hexdigest()
-    if cache_key in _EMBED_CACHE:
-        qvec = _EMBED_CACHE[cache_key]
-    else:
-        try:
-            r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
-            qvec = np.array(r.data[0].embedding, dtype=np.float32)
-            qvec = qvec / np.linalg.norm(qvec)
-            _EMBED_CACHE[cache_key] = qvec
-        except Exception as e:
-            st.error(f"向量化失败: {e}")
-            return []
+    # 获取 Embedding（自动缓存）
+    embedding_bytes = get_embedding(text)
+    if not embedding_bytes:
+        return []
+    qvec = np.frombuffer(embedding_bytes, dtype=np.float32)
 
     vec_scores = embeddings @ qvec
 
@@ -409,6 +406,15 @@ with col_scope:
 with col_model:
     selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
         format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
+
+# 模型信息提示
+_current_model = MODELS[selected_model]
+_model_provider = _current_model["provider"]
+_is_free = "(free)" in _current_model.get("model_id", "") or _model_provider == "ark"
+if _is_free:
+    st.caption("🆓 免费模型 · 请求过多会限制，如遇报错请切换其他模型")
+else:
+    st.caption(f"🤖 当前模型: {_current_model['name']}")
 
 selected_books = ALL_BOOKS
 if scope == "选择教材":

@@ -174,13 +174,30 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "", api_ur
       → 重写为 "股三角的边界有哪些"
 
     如果不含代词或无历史，原样返回。
+    优化：优先使用规则引擎（零延迟），仅在规则失败时 fallback 到 LLM。
     """
     if not prev_queries or not _PRONOUNS.search(query):
         return query
 
     prev = prev_queries[-1]  # 最近一轮的问题
 
-    # 如果 API key 可用，用 LLM 重写（更准确）
+    # 规则引擎优先（零延迟，90% 的情况可以处理）
+    prev_clean = re.sub(r"^(请|帮我|告诉我|介绍一下|讲讲|说说|解释一下|说明一下)\s*", "", prev)
+    prev_clean = re.sub(r"^(解释|说明)\s*", "", prev_clean)
+    prev_clean = re.sub(r"[？?。.！!，,、；;：:]+$", "", prev_clean).strip()
+    # 按 "的/了/在/是" 切分，取第一个有意义片段
+    parts = re.split(r"[的了在是]", prev_clean)
+    core = parts[0].strip() if parts else prev_clean[:20]
+
+    if core and len(core) > 1:
+        # 直接替换代词，不调用 LLM
+        result = query
+        for pronoun in ["它", "这个", "那个", "其", "该病", "该疾", "上述", "前面", "上一"]:
+            result = result.replace(pronoun, core)
+        if result != query:
+            return result
+
+    # 仅在规则失败时才调用 LLM（<10% 的情况）
     if api_key:
         try:
             r = requests.post(
@@ -214,14 +231,7 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "", api_ur
         except Exception:
             pass  # fallback 到简单拼接
 
-    # 简单 fallback：从上一轮提取核心名词短语
-    # 先去掉常见祈使句前缀（整体匹配）
-    prev_clean = re.sub(r"^(请|帮我|告诉我|介绍一下|讲讲|说说|解释一下|说明一下)\s*", "", prev)
-    prev_clean = re.sub(r"^(解释|说明)\s*", "", prev_clean)
-    prev_clean = re.sub(r"[？?。.！!，,、；;：:]+$", "", prev_clean).strip()
-    # 按 "的/了/在/是" 切分，取第一个有意义片段
-    parts = re.split(r"[的了在是]", prev_clean)
-    core = parts[0].strip() if parts else prev_clean[:20]
+    # 最终 fallback：简单拼接
     if core and len(core) > 1:
         return f"{core} {query}"
     return query
@@ -309,66 +319,82 @@ def call_llm_stream(
     temperature: float = 0.3,
     max_tokens: int = 2000,
     timeout: int = 30,
+    max_retries: int = 2,
 ):
-    """流式调用 Chat API，逐 token 生成。yield 每个文本片段。支持读取超时保护。"""
+    """流式调用 Chat API，逐 token 生成。yield 每个文本片段。支持 429 重试和读取超时保护。"""
     import time
+    import random
 
-    try:
-        r = requests.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_msg},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": True,
-            },
-            timeout=timeout,
-            stream=True,
-        )
-        if r.status_code == 429:
-            yield "⚠️ 请求过于频繁，请稍后重试"
-            return
-        r.raise_for_status()
-        r.encoding = "utf-8"
-
-        last_activity = time.time()
-        for line in r.iter_lines(decode_unicode=True):
-            # 检查读取超时（30秒无数据则超时）
-            if time.time() - last_activity > 30:
-                yield "⚠️ 流式响应超时，请重试"
+    for attempt in range(max_retries + 1):
+        try:
+            r = requests.post(
+                api_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                },
+                timeout=timeout,
+                stream=True,
+            )
+            if r.status_code == 429:
+                if attempt < max_retries:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(wait)
+                    continue
+                yield f"⚠️ [429限流] 当前模型已达到速率限制。请切换到其他模型后重试。"
                 return
-            last_activity = time.time()
+            r.raise_for_status()
+            r.encoding = "utf-8"
 
-            if not line:
+            last_activity = time.time()
+            for line in r.iter_lines(decode_unicode=True):
+                # 检查读取超时（30秒无数据则超时）
+                if time.time() - last_activity > 30:
+                    yield "⚠️ 流式响应超时，请重试"
+                    return
+                last_activity = time.time()
+
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(data)
+                    choices = obj.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+                except (json.JSONDecodeError, IndexError, KeyError):
+                    continue
+            return  # 成功完成
+        except requests.exceptions.Timeout:
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
                 continue
-            line = line.strip()
-            if not line.startswith("data: "):
+            yield "⚠️ 请求超时，请稍后重试"
+            return
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(1)
                 continue
-            data = line[6:]
-            if data.strip() == "[DONE]":
-                break
-            try:
-                obj = json.loads(data)
-                choices = obj.get("choices", [])
-                if choices:
-                    delta = choices[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
-            except (json.JSONDecodeError, IndexError, KeyError):
-                continue
-    except requests.exceptions.Timeout:
-        yield "⚠️ 请求超时，请稍后重试"
-    except Exception as e:
-        yield f"⚠️ 生成回答失败: {e}"
+            yield f"⚠️ 生成回答失败: {e}"
+            return
 
 
 # ── 新功能函数 ─────────────────────────────────────────
