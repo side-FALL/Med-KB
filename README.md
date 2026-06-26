@@ -16,10 +16,11 @@ license: Apache License 2.0
 
 - 📚 **43本医学教材**：覆盖临床医学全科教材
 - 🔍 **混合检索**：向量语义 + BM25关键词，支持权重调节
-- 💡 **AI回答**：DeepSeek V4 Flash自动生成综合回答
+- 💡 **多模型支持**：CherryIN DeepSeek、MiMo V2.5、火山方舟 DeepSeek
 - 🆓 **完全免费**：嵌入和回答模型均使用免费API
 - 📱 **多端适配**：支持PC和手机浏览器访问
 - 🔄 **多轮对话**：支持连续提问，上下文记忆，代词指代解析
+- 🛡️ **高可用**：模型降级机制、超时保护、重试机制
 
 ### 🆕 v2.0 新增功能
 
@@ -92,7 +93,7 @@ license: Apache License 2.0
 
 - **向量模型**：CherryIN BGE-M3 (免费)
 - **OCR识别**：CherryIN DeepSeek OCR (免费)
-- **回答生成**：CherryIN DeepSeek V4 Flash (免费)
+- **回答生成**：CherryIN DeepSeek V4 Flash / MiMo V2.5 / 火山方舟 DeepSeek (免费)
 - **向量存储**：NumPy (轻量级)
 - **前端框架**：Streamlit
 
@@ -133,6 +134,7 @@ license: Apache License 2.0
 
 ## 📊 版本历史
 
+- **v2.2.2** (2026-06-26): 多模型支持、超时保护、重试机制
 - **v2.2.1** (2026-06-21): 智能体对话式改造、置信度兜底、缓存优化、医疗蓝UI
 - **v2.2.0** (2026-06-16): 新增智能体模式，5大专业工具
 - **v2.1.3** (2026-06-13): 优化全部提示词，提升回答质量
@@ -150,14 +152,35 @@ cd med-kb
 # 安装依赖
 pip install -r requirements.txt
 
-# 设置环境变量
-export CS_API_KEY="your-api-key"
+# 配置环境变量（创建 .env 文件）
+cat > .env << EOF
+CS_API_KEY=your-cherryin-api-key
+MIMO_API_KEY=your-mimo-api-key
+ARK_API_KEY=your-ark-api-key
+EOF
 
 # 运行
 streamlit run app.py
 ```
 
+### 环境变量说明
+
+| 变量名 | 说明 | 获取方式 |
+|--------|------|----------|
+| `CS_API_KEY` | CherryIN API 密钥 | [CherryIN 官网](https://open.cherryin.net) |
+| `MIMO_API_KEY` | MiMo API 密钥 | [MiMo 官网](https://api.xiaomimimo.com) |
+| `ARK_API_KEY` | 火山方舟 API 密钥 | [火山方舟官网](https://console.volcengine.com/ark) |
+
 ## 📝 更新日志
+
+### v2.2.2 (2026-06-26)
+- ✅ 新增多模型支持：MiMo V2.5（小米）、DeepSeek V4 Flash（火山方舟）
+- ✅ 新增模型降级机制：模型不可用时自动尝试其他模型
+- ✅ 新增 Embedding 缓存：相同查询不重复调用 API
+- ✅ 新增超时保护：统一 30 秒超时，流式响应读取超时保护
+- ✅ 新增重试机制：429 限流时自动指数退避重试
+- ✅ 新增 dotenv 支持：自动加载 .env 环境变量
+- ✅ 优化错误处理：区分超时、限流等不同错误类型
 
 ### v2.2.1 (2026-06-21)
 - ✅ 智能体模式改造为对话式：支持多轮对话，自动保留上下文
