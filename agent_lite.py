@@ -65,14 +65,14 @@ Question: {input}
 API_URL = "https://open.cherryin.net/v1/chat/completions"
 
 
-def _call_llm(api_key: str, messages: list, model: str, api_url: str = API_URL, temperature: float = 0.3, max_retries: int = 3) -> str:
+def _call_llm(api_key: str, messages: list, model: str, temperature: float = 0.3, max_retries: int = 3) -> str:
     """调用 LLM API，支持重试"""
     import time
 
     for attempt in range(max_retries):
         try:
             r = requests.post(
-                api_url,
+                API_URL,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -83,7 +83,7 @@ def _call_llm(api_key: str, messages: list, model: str, api_url: str = API_URL, 
                     "temperature": temperature,
                     "max_tokens": 1500,
                 },
-                timeout=30,
+                timeout=180,
             )
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
@@ -99,14 +99,14 @@ def _call_llm(api_key: str, messages: list, model: str, api_url: str = API_URL, 
             raise
 
 
-def _call_llm_stream(api_key: str, messages: list, model: str, api_url: str = API_URL, temperature: float = 0.3, max_retries: int = 3):
+def _call_llm_stream(api_key: str, messages: list, model: str, temperature: float = 0.3, max_retries: int = 3):
     """流式调用 LLM API，yield 每个 token"""
     import time
 
     for attempt in range(max_retries):
         try:
             r = requests.post(
-                api_url,
+                API_URL,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -118,20 +118,13 @@ def _call_llm_stream(api_key: str, messages: list, model: str, api_url: str = AP
                     "max_tokens": 1500,
                     "stream": True,
                 },
-                timeout=30,
+                timeout=180,
                 stream=True,
             )
             r.raise_for_status()
             r.encoding = "utf-8"
 
-            last_activity = time.time()
             for line in r.iter_lines(decode_unicode=True):
-                # 检查读取超时（30秒无数据则超时）
-                if time.time() - last_activity > 30:
-                    yield "⚠️ 流式响应超时，请重试"
-                    return
-                last_activity = time.time()
-
                 if not line:
                     continue
                 line = line.strip()
@@ -188,27 +181,20 @@ def _parse_final_answer(text: str) -> Optional[str]:
     return None
 
 
-def run_agent(
-    query: str,
-    api_key: str,
-    model: str = "deepseek/deepseek-v4-flash(free)",
-    api_url: str = API_URL,
-    max_steps: int = 5,
-) -> dict:
+def run_agent(query: str, api_key: str, model: str = "deepseek/deepseek-v4-flash(free)", max_steps: int = 5) -> dict:
     """运行轻量版 Agent（不依赖 LangChain）
 
     Args:
         query: 用户问题
         api_key: API 密钥
         model: 模型名称
-        api_url: API 端点 URL
         max_steps: 最大推理步数
 
     Returns:
         dict: {"output": str, "steps": list, "error": str|None}
     """
     if not api_key:
-        return {"output": "", "steps": [], "error": "未配置 API Key"}
+        return {"output": "", "steps": [], "error": "未配置 CS_API_KEY"}
 
     try:
         # 获取工具列表
@@ -230,7 +216,7 @@ def run_agent(
 
         for step in range(max_steps):
             # 调用 LLM
-            response = _call_llm(api_key, messages, model, api_url=api_url)
+            response = _call_llm(api_key, messages, model)
             messages.append({"role": "assistant", "content": response})
 
             # 检查是否有 Final Answer
@@ -306,7 +292,6 @@ def run_agent_stream(
     query: str,
     api_key: str,
     model: str = "deepseek/deepseek-v4-flash(free)",
-    api_url: str = API_URL,
     max_steps: int = 5,
     conversation_history: Optional[list[tuple[str, str]]] = None,
 ):
@@ -316,7 +301,6 @@ def run_agent_stream(
         query: 用户问题
         api_key: API 密钥
         model: 模型名称
-        api_url: API 端点 URL
         max_steps: 最大推理步数
         conversation_history: 对话历史 [(问题, 回答), ...]
 
@@ -327,7 +311,7 @@ def run_agent_stream(
             - "error": 错误信息
     """
     if not api_key:
-        yield {"type": "error", "data": "未配置 API Key"}
+        yield {"type": "error", "data": "未配置 CS_API_KEY"}
         return
 
     try:
@@ -359,7 +343,7 @@ def run_agent_stream(
 
         for step in range(max_steps):
             # 调用 LLM（非流式，用于推理阶段）
-            response = _call_llm(api_key, messages, model, api_url=api_url)
+            response = _call_llm(api_key, messages, model)
             messages.append({"role": "assistant", "content": response})
 
             # 检查是否有 Final Answer
