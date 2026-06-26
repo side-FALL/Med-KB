@@ -383,16 +383,16 @@ st.markdown("""
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.1 更新公告</h4>
-            <p><strong>智能体对话式改造 + 性能优化：</strong></p>
+            <h4>v2.2.2 更新公告</h4>
+            <p><strong>多模型支持 + 性能优化：</strong></p>
             <ul>
-                <li>💬 智能体对话：支持多轮对话，自动保留上下文</li>
-                <li>🛡️ 置信度评估：低置信度回答会显示警告</li>
-                <li>⚡ 缓存优化：重复查询瞬间返回</li>
-                <li>🎨 浅蓝白UI：更清爽的界面风格</li>
+                <li>🤖 多模型支持：MiMo V2.5、火山方舟 DeepSeek</li>
+                <li>⚡ 响应优化：Embedding 缓存、规则引擎查询重写</li>
+                <li>🛡️ 高可用：模型降级、429 限流重试</li>
+                <li>🆓 免费模型提示：请求过多会限制，可切换其他模型</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                智能体可结合前3轮对话理解代词（如"那这个药呢"）
+                遇到限流错误时，请切换到其他模型
             </p>
         </div>
     </span>
