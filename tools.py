@@ -38,7 +38,7 @@ def _get_embed_client() -> OpenAI:
     """Lazy-init the embedding API client."""
     global _embed_client
     if _embed_client is None:
-        _embed_client = OpenAI(api_key=_API_KEY, base_url="https://open.cherryin.net/v1")
+        _embed_client = OpenAI(api_key=_API_KEY, base_url="https://open.cherryin.net/v1", timeout=15.0)
     return _embed_client
 
 

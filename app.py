@@ -4,6 +4,13 @@ import os, json, re
 import numpy as np
 from pathlib import Path
 
+# 加载 .env 文件
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env", override=True)
+except ImportError:
+    pass
+
 from openai import OpenAI
 
 
@@ -145,17 +152,77 @@ def load_selected_books(book_names: list[str]):
     return np.vstack(all_emb), all_docs, all_metas
 
 # ── API ───────────────────────────────────────────
-API_KEY = os.environ.get("CS_API_KEY","")
-if not API_KEY: st.error("未配置 CS_API_KEY"); st.stop()
-_embed = OpenAI(api_key=API_KEY, base_url="https://open.cherryin.net/v1")
-MODELS = {
-    "deepseek/deepseek-v4-flash(free)": "DeepSeek V4 Flash",
-    "deepseek/deepseek-v3.2-250101(free)": "DeepSeek V3.2",
+# 模型提供商配置
+MODEL_PROVIDERS = {
+    "cherryin": {
+        "base_url": "https://open.cherryin.net/v1/chat/completions",
+        "embed_url": "https://open.cherryin.net/v1",
+        "api_key_env": "CS_API_KEY",
+    },
+    "mimo": {
+        "base_url": "https://api.xiaomimimo.com/v1/chat/completions",
+        "embed_url": "https://api.xiaomimimo.com/v1",
+        "api_key_env": "MIMO_API_KEY",
+    },
+    "ark": {
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "embed_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "api_key_env": "ARK_API_KEY",
+    },
 }
+
+# 模型配置
+MODELS = {
+    "cherryin/deepseek-v4-flash": {
+        "name": "DeepSeek V4 Flash",
+        "provider": "cherryin",
+        "model_id": "deepseek/deepseek-v4-flash(free)",
+    },
+    "cherryin/deepseek-v3.2": {
+        "name": "DeepSeek V3.2",
+        "provider": "cherryin",
+        "model_id": "deepseek/deepseek-v3.2-250101(free)",
+    },
+    "mimo/mimo-v2.5": {
+        "name": "MiMo V2.5",
+        "provider": "mimo",
+        "model_id": "mimo-v2.5",
+    },
+    "ark/deepseek-v4-flash": {
+        "name": "DeepSeek V4 Flash (火山)",
+        "provider": "ark",
+        "model_id": "deepseek-v4-flash-260425",
+    },
+}
+
+# 降级顺序
+FALLBACK_ORDER = [
+    "cherryin/deepseek-v4-flash",
+    "mimo/mimo-v2.5",
+    "ark/deepseek-v4-flash",
+]
+
+# 获取 API Key
+def _get_api_key(provider: str) -> str:
+    """获取指定提供商的 API Key"""
+    env_var = MODEL_PROVIDERS[provider]["api_key_env"]
+    return os.environ.get(env_var, "")
+
+# 检查必需的 API Key
+CS_API_KEY = _get_api_key("cherryin")
+if not CS_API_KEY:
+    st.error("未配置 CS_API_KEY")
+    st.stop()
+
+# Embedding 客户端（使用 CherryIN，添加 timeout）
+_embed = OpenAI(api_key=CS_API_KEY, base_url=MODEL_PROVIDERS["cherryin"]["embed_url"], timeout=15.0)
 
 # ── BM25 关键词检索 ──────────────────────────────────
 _STOPWORDS = set("的了是在不有我这个们他她它们和与或但而如果因为所以可以已经正在".replace(" ",""))
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,}|[a-zA-Z]+|\d+")
+
+# Embedding 缓存
+_EMBED_CACHE: dict[str, np.ndarray] = {}
 
 def _tokenize(text: str) -> list[str]:
     text = re.sub(r"[的了是在不有我这个们]", " ", text)
@@ -169,9 +236,22 @@ def _tokenize(text: str) -> list[str]:
 
 # ── 混合检索 ──────────────────────────────────────
 def search(text, embeddings, documents, metadatas, k=10, alpha=0.7):
-    r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
-    qvec = np.array(r.data[0].embedding, dtype=np.float32)
-    qvec = qvec / np.linalg.norm(qvec)
+    import hashlib
+
+    # 检查 Embedding 缓存
+    cache_key = hashlib.md5(text.encode()).hexdigest()
+    if cache_key in _EMBED_CACHE:
+        qvec = _EMBED_CACHE[cache_key]
+    else:
+        try:
+            r = _embed.embeddings.create(model="baai/bge-m3(free)", input=[text])
+            qvec = np.array(r.data[0].embedding, dtype=np.float32)
+            qvec = qvec / np.linalg.norm(qvec)
+            _EMBED_CACHE[cache_key] = qvec
+        except Exception as e:
+            st.error(f"向量化失败: {e}")
+            return []
+
     vec_scores = embeddings @ qvec
 
     # 向量 top-50 候选
@@ -328,7 +408,7 @@ with col_scope:
     scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed")
 with col_model:
     selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
-        format_func=lambda x: MODELS[x], label_visibility="collapsed")
+        format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
 
 selected_books = ALL_BOOKS
 if scope == "选择教材":
@@ -393,7 +473,13 @@ with mode[0]:
         search_query = q.strip()
         if use_context and st.session_state.conversation_turns:
             prev_queries = [t[0] for t in st.session_state.conversation_turns]
-            rewritten = rewrite_query(search_query, prev_queries, api_key=API_KEY)
+            # 获取当前模型的 API 配置
+            model_config = MODELS[selected_model]
+            provider_config = MODEL_PROVIDERS[model_config["provider"]]
+            api_key = _get_api_key(model_config["provider"])
+            api_url = provider_config["base_url"]
+            model_id = model_config["model_id"]
+            rewritten = rewrite_query(search_query, prev_queries, api_key=api_key, api_url=api_url, model=model_id)
             if rewritten != search_query:
                 search_query = rewritten
                 st.info(f"🔄 结合上下文重写查询：{rewritten}")
@@ -407,7 +493,7 @@ with mode[0]:
                 user_msg = build_user_message(hits, q.strip(), conv_context if use_context else "")
                 # 收集流式输出
                 ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=prompt_to_use):
+                for chunk in call_llm_stream(api_key, user_msg, api_url=api_url, model=model_id, system_prompt=prompt_to_use):
                     ans += chunk
                 # 修复 LaTeX 公式后显示
                 fixed_ans = fix_latex_formulas(ans)
@@ -415,7 +501,7 @@ with mode[0]:
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 ans = "未找到相关内容"
-        st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS.get(selected_model,""),"mode":"问答"})
+        st.session_state.hist.append({"q":q.strip(),"hits":hits,"a":ans,"model":MODELS[selected_model]["name"],"mode":"问答"})
         if use_context:
             st.session_state.conversation_turns.append((q.strip(), ans))
 
@@ -461,13 +547,19 @@ with mode[1]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 检索教材并出题…", expanded=True) as status:
             hits = search(quiz_topic.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
                 user_msg = build_quiz_message(hits, quiz_topic.strip())
                 status.update(label="✅ 检索完成，正在生成5道题目…", state="complete")
                 quiz_raw = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=QUIZ_SYSTEM_PROMPT):
+                for chunk in call_llm_stream(api_key, user_msg, api_url=api_url, model=model_id, system_prompt=QUIZ_SYSTEM_PROMPT):
                     quiz_raw += chunk
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
@@ -538,6 +630,12 @@ with mode[2]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 分别检索两个概念…", expanded=True) as status:
             hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
@@ -547,7 +645,7 @@ with mode[2]:
                 user_msg = build_compare_message(hits_a, hits_b, concept_a.strip(), concept_b.strip())
                 # 收集流式输出
                 cmp_ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=COMPARE_SYSTEM_PROMPT):
+                for chunk in call_llm_stream(api_key, user_msg, api_url=api_url, model=model_id, system_prompt=COMPARE_SYSTEM_PROMPT):
                     cmp_ans += chunk
                 # 修复 LaTeX 公式后显示
                 fixed_cmp_ans = fix_latex_formulas(cmp_ans)
@@ -556,7 +654,7 @@ with mode[2]:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 cmp_ans = "未找到相关教材内容，请换个概念试试。"
         all_hits = (hits_a or []) + (hits_b or [])
-        st.session_state.hist.append({"q":f"[对比] {concept_a} vs {concept_b}","hits":all_hits,"a":cmp_ans,"model":MODELS.get(selected_model,""),"mode":"对比"})
+        st.session_state.hist.append({"q":f"[对比] {concept_a} vs {concept_b}","hits":all_hits,"a":cmp_ans,"model":MODELS[selected_model]["name"],"mode":"对比"})
 
     # 显示对比历史
     cmp_items = [h for h in st.session_state.hist if h.get("mode") == "对比"]
@@ -590,6 +688,12 @@ with mode[3]:
         embeddings, documents, metadatas = load_selected_books(books_to_load)
         if embeddings is None:
             st.error("未加载到教材数据"); st.stop()
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
         with st.status("🔍 检索相关教材…", expanded=True) as status:
             hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
             if hits:
@@ -598,7 +702,7 @@ with mode[3]:
                 user_msg = build_case_message(hits, case_desc.strip())
                 # 收集流式输出
                 case_ans = ""
-                for chunk in call_llm_stream(API_KEY, user_msg, model=selected_model, system_prompt=CASE_SYSTEM_PROMPT):
+                for chunk in call_llm_stream(api_key, user_msg, api_url=api_url, model=model_id, system_prompt=CASE_SYSTEM_PROMPT):
                     case_ans += chunk
                 # 修复 LaTeX 公式后显示
                 fixed_case_ans = fix_latex_formulas(case_ans)
@@ -606,7 +710,7 @@ with mode[3]:
             else:
                 status.update(label="⚠️ 未找到相关内容", state="complete")
                 case_ans = "未找到相关教材内容，请补充更多病例信息。"
-        st.session_state.hist.append({"q":f"[病例] {case_desc.strip()[:50]}…","hits":hits,"a":case_ans,"model":MODELS.get(selected_model,""),"mode":"病例"})
+        st.session_state.hist.append({"q":f"[病例] {case_desc.strip()[:50]}…","hits":hits,"a":case_ans,"model":MODELS[selected_model]["name"],"mode":"病例"})
 
     # 显示病例历史
     case_items = [h for h in st.session_state.hist if h.get("mode") == "病例"]
@@ -675,6 +779,13 @@ with mode[4]:
         if agent_btn and agent_query.strip():
             query_text = agent_query.strip()
 
+            # 获取当前模型的 API 配置
+            model_config = MODELS[selected_model]
+            provider_config = MODEL_PROVIDERS[model_config["provider"]]
+            api_key = _get_api_key(model_config["provider"])
+            api_url = provider_config["base_url"]
+            model_id = model_config["model_id"]
+
             with st.status("🤖 智能体思考中…", expanded=True) as status:
                 st.write("🧠 正在分析问题并选择工具…")
 
@@ -686,7 +797,7 @@ with mode[4]:
 
                     # 传入对话历史
                     for event in run_agent_stream(
-                        query_text, API_KEY, model=selected_model,
+                        query_text, api_key, model=model_id, api_url=api_url,
                         conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns]
                     ):
                         if event["type"] == "step":
@@ -724,12 +835,12 @@ with mode[4]:
                             "q": f"[智能体] {query_text}",
                             "hits": [],
                             "a": final_answer,
-                            "model": MODELS.get(selected_model, ""),
+                            "model": MODELS[selected_model]["name"],
                             "mode": "智能体"
                         })
                 else:
                     # 降级到非流式模式
-                    result = run_agent(query_text, API_KEY, model=selected_model)
+                    result = run_agent(query_text, api_key, model=model_id, api_url=api_url)
 
                     if result["error"]:
                         status.update(label="❌ 出错了", state="error")
@@ -752,7 +863,7 @@ with mode[4]:
                         "q": f"[智能体] {query_text}",
                         "hits": [],
                         "a": result.get("output", ""),
-                        "model": MODELS.get(selected_model, ""),
+                        "model": MODELS[selected_model]["name"],
                         "mode": "智能体"
                     })
 
