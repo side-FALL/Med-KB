@@ -63,6 +63,12 @@ except ImportError:
         run_agent = None
         run_agent_stream = None
 
+# 导入工具层的教材选择函数
+try:
+    from tools import set_selected_books
+except ImportError:
+    set_selected_books = lambda x: None
+
 from __init__ import __version__
 
 st.set_page_config(
@@ -785,6 +791,10 @@ with mode[4]:
 
         if agent_btn and agent_query.strip():
             query_text = agent_query.strip()
+
+            # 设置智能体可搜索的教材范围
+            books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else None
+            set_selected_books(books_to_load)
 
             # 获取当前模型的 API 配置
             model_config = MODELS[selected_model]

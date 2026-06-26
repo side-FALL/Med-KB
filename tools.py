@@ -68,6 +68,18 @@ def _tokenize(text: str) -> list[str]:
 
 # ── Book data cache ──────────────────────────────────────
 _book_cache: dict[str, tuple] = {}
+_selected_book_names: Optional[list[str]] = None  # 用户选定的教材列表
+
+
+def set_selected_books(book_names: Optional[list[str]]):
+    """设置用户选定的教材列表（由 app.py 调用）。"""
+    global _selected_book_names
+    _selected_book_names = book_names
+
+
+def _get_selected_book_names() -> Optional[list[str]]:
+    """获取用户选定的教材列表，None 表示全部教材。"""
+    return _selected_book_names
 
 
 def _load_book(book_name: str) -> tuple:
@@ -96,17 +108,24 @@ def _load_book(book_name: str) -> tuple:
 
 
 def _load_all_books() -> tuple:
-    """Load all books and return concatenated (embeddings, documents, metadatas)."""
+    """Load all books (or selected books) and return concatenated (embeddings, documents, metadatas)."""
     if not _MANIFEST.exists():
         raise FileNotFoundError("books/manifest.json 不存在，请先运行 split_books.py")
 
     manifest = json.loads(_MANIFEST.read_text(encoding="utf-8"))
+    
+    # 根据用户选择过滤教材
+    book_names = list(manifest.keys())
+    if _selected_book_names is not None:
+        book_names = [n for n in book_names if n in _selected_book_names]
+    
     all_emb, all_docs, all_metas = [], [], []
-    for name in manifest:
-        emb, docs, metas = _load_book(name)
-        all_emb.append(emb)
-        all_docs.extend(docs)
-        all_metas.extend(metas)
+    for name in book_names:
+        if name in manifest:
+            emb, docs, metas = _load_book(name)
+            all_emb.append(emb)
+            all_docs.extend(docs)
+            all_metas.extend(metas)
 
     if not all_emb:
         return None, [], []
