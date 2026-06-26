@@ -470,15 +470,16 @@ with mode[0]:
                 lines.append(f"助手: {turn_a[:200]}")
             conv_context = "\n".join(lines)
 
+        # 获取当前模型的 API 配置
+        model_config = MODELS[selected_model]
+        provider_config = MODEL_PROVIDERS[model_config["provider"]]
+        api_key = _get_api_key(model_config["provider"])
+        api_url = provider_config["base_url"]
+        model_id = model_config["model_id"]
+
         search_query = q.strip()
         if use_context and st.session_state.conversation_turns:
             prev_queries = [t[0] for t in st.session_state.conversation_turns]
-            # 获取当前模型的 API 配置
-            model_config = MODELS[selected_model]
-            provider_config = MODEL_PROVIDERS[model_config["provider"]]
-            api_key = _get_api_key(model_config["provider"])
-            api_url = provider_config["base_url"]
-            model_id = model_config["model_id"]
             rewritten = rewrite_query(search_query, prev_queries, api_key=api_key, api_url=api_url, model=model_id)
             if rewritten != search_query:
                 search_query = rewritten
