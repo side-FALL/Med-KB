@@ -441,11 +441,6 @@ with col_model:
     selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
         format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
 
-# 模型切换时重置密码验证
-if "last_model" in st.session_state and st.session_state.last_model != selected_model:
-    st.session_state["model_authed"] = False
-st.session_state["last_model"] = selected_model
-
 # 模型信息提示
 _current_model = MODELS[selected_model]
 _is_free = _is_model_free(selected_model)
