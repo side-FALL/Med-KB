@@ -213,7 +213,7 @@ def _get_api_key(provider: str) -> str:
 def _is_model_free(model_key: str) -> bool:
     """判断模型是否为免费模型"""
     model = MODELS[model_key]
-    return "(free)" in model.get("model_id", "") or model["provider"] == "ark"
+    return "(free)" in model.get("model_id", "")
 
 # 密码验证函数
 def check_model_password() -> bool:
