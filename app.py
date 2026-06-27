@@ -209,6 +209,34 @@ def _get_api_key(provider: str) -> str:
     env_var = MODEL_PROVIDERS[provider]["api_key_env"]
     return os.environ.get(env_var, "")
 
+# 判断是否为免费模型
+def _is_model_free(model_key: str) -> bool:
+    """判断模型是否为免费模型"""
+    model = MODELS[model_key]
+    return "(free)" in model.get("model_id", "") or model["provider"] == "ark"
+
+# 密码验证函数
+def check_model_password() -> bool:
+    """验证付费模型密码。用户输入正确密码后缓存到 session_state。"""
+    expected = os.environ.get("PASSWORD", "")
+    if not expected:
+        return True  # 未配置密码则跳过验证
+
+    if st.session_state.get("model_authed", False):
+        return True
+
+    st.info("🔒 输入密码后可使用付费模型")
+    with st.form("password_form", clear_on_submit=True):
+        pwd = st.text_input("请输入访问密码", type="password")
+        submitted = st.form_submit_button("确认")
+        if submitted:
+            if pwd == expected:
+                st.session_state["model_authed"] = True
+                st.rerun()
+            else:
+                st.error("❌ 密码错误")
+    return False
+
 # 检查必需的 API Key
 CS_API_KEY = _get_api_key("cherryin")
 if not CS_API_KEY:
@@ -413,14 +441,21 @@ with col_model:
     selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
         format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
 
+# 模型切换时重置密码验证
+if "last_model" in st.session_state and st.session_state.last_model != selected_model:
+    st.session_state["model_authed"] = False
+st.session_state["last_model"] = selected_model
+
 # 模型信息提示
 _current_model = MODELS[selected_model]
-_model_provider = _current_model["provider"]
-_is_free = "(free)" in _current_model.get("model_id", "") or _model_provider == "ark"
+_is_free = _is_model_free(selected_model)
 if _is_free:
     st.caption("🆓 免费模型 · 请求过多会限制，如遇报错请切换其他模型")
 else:
-    st.caption(f"🤖 当前模型: {_current_model['name']}")
+    # 付费模型需要密码验证
+    if not check_model_password():
+        st.stop()
+    st.caption(f"🤖 当前模型: {_current_model['name']}（已验证）")
 
 selected_books = ALL_BOOKS
 if scope == "选择教材":
