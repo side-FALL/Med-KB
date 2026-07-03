@@ -1,0 +1,114 @@
+/* ═══════════════════════════════════════════════════════════
+   医学教材知识库 — Tooltip 样式（医疗风格）
+   ═══════════════════════════════════════════════════════════ */
+
+.tooltip-container {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+
+.tooltip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, #0D6EFD 0%, #0A58CA 100%);
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: bold;
+    margin-left: 8px;
+    vertical-align: middle;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.3);
+    transition: all 0.2s ease;
+}
+
+.tooltip-icon:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(13, 110, 253, 0.4);
+}
+
+.tooltip-content {
+    visibility: hidden;
+    width: 380px;
+    background: white;
+    color: #212529;
+    border-radius: 16px;
+    padding: 1.5rem;
+    position: absolute;
+    z-index: 1000;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(100% + 12px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+    font-size: 0.88rem;
+    line-height: 1.6;
+    text-align: left;
+    border: 1px solid #E9ECEF;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tooltip-content::before {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 16px;
+    background: white;
+    border: 1px solid #E9ECEF;
+    border-bottom: none;
+    border-right: none;
+    transform: translateX(-50%) rotate(45deg);
+}
+
+.tooltip-content h4 {
+    margin: 0 0 1rem 0;
+    color: #0A58CA;
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tooltip-content h4::before {
+    content: "📋";
+    font-size: 1.2rem;
+}
+
+.tooltip-content ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.tooltip-content li {
+    margin-bottom: 0.5rem;
+    color: #495057;
+}
+
+.tooltip-content li::marker {
+    color: #0D6EFD;
+}
+
+.tooltip-content p {
+    margin: 0.5rem 0;
+}
+
+.tooltip-container:hover .tooltip-content {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* ── 响应式调整 ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .tooltip-content {
+        width: 280px;
+        padding: 1rem;
+        font-size: 0.82rem;
+    }
+}
