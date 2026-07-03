@@ -338,7 +338,7 @@ def run_agent_stream(
     Yields:
         dict: {"type": "step"|"token"|"error", "data": ...}
             - "step": 推理步骤 {"tool": ..., "input": ..., "output": ...}
-            - "token": 最终回答的 token
+            - "token": 最终回答的 token（由 LLM 流式输出）
             - "error": 错误信息
     """
     if not api_key:
@@ -373,26 +373,37 @@ def run_agent_stream(
         ]
 
         for step in range(max_steps):
-            # 调用 LLM（非流式，用于推理阶段）
-            response = _call_llm(api_key, messages, model, api_url=api_url)
-            messages.append({"role": "assistant", "content": response})
+            # 流式调用 LLM（用于推理阶段），实时检测 Final Answer
+            full_response = ""
+            marker_found = False
 
-            # 检查是否有 Final Answer
-            final_answer = _parse_final_answer(response)
-            if final_answer:
-                # 流式输出最终回答
-                # 将 final_answer 分段 yield
-                for i in range(0, len(final_answer), 10):
-                    yield {"type": "token", "data": final_answer[i:i+10]}
+            for token in _call_llm_stream(api_key, messages, model, api_url=api_url):
+                full_response += token
+
+                if not marker_found:
+                    # 检测 "Final Answer:" 标记（仅在行首时生效，避免误匹配）
+                    pos = full_response.rfind("Final Answer:")
+                    if pos != -1 and (pos == 0 or full_response[pos - 1] == '\n'):
+                        marker_found = True
+                        # 把标记之后已缓冲的内容作为首段流式输出
+                        after = full_response[pos + len("Final Answer:"):].lstrip()
+                        if after:
+                            yield {"type": "token", "data": after}
+                else:
+                    yield {"type": "token", "data": token}
+
+            messages.append({"role": "assistant", "content": full_response})
+
+            if marker_found:
                 return
 
             # 解析 Action
-            action, action_input = _parse_action(response)
+            action, action_input = _parse_action(full_response)
 
             if not action:
                 # 没有 Action，把整个回复作为最终回答（流式）
-                for i in range(0, len(response), 10):
-                    yield {"type": "token", "data": response[i:i+10]}
+                for i in range(0, len(full_response), 10):
+                    yield {"type": "token", "data": full_response[i:i+10]}
                 return
 
             # 执行工具

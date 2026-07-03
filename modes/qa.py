@@ -102,11 +102,13 @@ def render(
             st.warning("未找到相关内容，请换个关键词试试。")
             st.session_state.hist.append({"q": q.strip(), "hits": [], "a": "未找到相关内容", "model": MODELS[selected_model]["name"], "mode": "问答"})
 
-    # 显示问答历史
+    # 显示问答历史（排除最后一条，因为它已在上方流式显示过）
     qa_items = [h for h in st.session_state.hist if h.get("mode", "问答") == "问答"]
-    if qa_items:
+    # 减去当前轮次已流式显示的回答：如果刚刚执行了搜索，最后一项已在上方实时展示
+    display_items = qa_items[:-1] if (search_btn or q.strip()) and q.strip() and qa_items else qa_items
+    if display_items:
         st.markdown("---")
-        for item in reversed(qa_items):
+        for item in reversed(display_items):
             render_user_bubble(item["q"])
             if item["hits"]:
                 render_source_cards(item["hits"])

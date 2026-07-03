@@ -68,12 +68,20 @@ def _tokenize(text: str) -> list[str]:
 
 # ── Book data cache ──────────────────────────────────────
 _book_cache: dict[str, tuple] = {}
+_all_books_cache: dict = {}  # key: frozenset(book_names) or None → (emb, docs, metas)
 _selected_book_names: Optional[list[str]] = None  # 用户选定的教材列表
+_last_selected_cache_key: Optional[frozenset] = None  # 上次缓存键，用于检测变化
 
 
 def set_selected_books(book_names: Optional[list[str]]):
-    """设置用户选定的教材列表（由 app.py 调用）。"""
-    global _selected_book_names
+    """设置用户选定的教材列表（由 app.py 调用）。选中变化时清除一级缓存。"""
+    global _selected_book_names, _last_selected_cache_key, _all_books_cache
+    new_key = frozenset(book_names) if book_names is not None else None
+    if new_key != _last_selected_cache_key:
+        # 教材选择变化，清除全部缓存（包括 _book_cache 和 _all_books_cache）
+        _book_cache.clear()
+        _all_books_cache.clear()
+        _last_selected_cache_key = new_key
     _selected_book_names = book_names
 
 
@@ -108,17 +116,27 @@ def _load_book(book_name: str) -> tuple:
 
 
 def _load_all_books() -> tuple:
-    """Load all books (or selected books) and return concatenated (embeddings, documents, metadatas)."""
+    """Load all books (or selected books) and return concatenated (embeddings, documents, metadatas).
+
+    Uses two-level cache:
+      1. _book_cache: individual book (emb, docs, metas) — no need to reload .npz
+      2. _all_books_cache: concatenated result — no need to re-vstack
+    """
     if not _MANIFEST.exists():
         raise FileNotFoundError("books/manifest.json 不存在，请先运行 split_books.py")
 
     manifest = json.loads(_MANIFEST.read_text(encoding="utf-8"))
-    
+
     # 根据用户选择过滤教材
     book_names = list(manifest.keys())
     if _selected_book_names is not None:
         book_names = [n for n in book_names if n in _selected_book_names]
-    
+
+    # 检查一级缓存（全部教材拼接结果缓存）
+    cache_key = frozenset(book_names)
+    if cache_key in _all_books_cache:
+        return _all_books_cache[cache_key]
+
     all_emb, all_docs, all_metas = [], [], []
     for name in book_names:
         if name in manifest:
@@ -128,8 +146,38 @@ def _load_all_books() -> tuple:
             all_metas.extend(metas)
 
     if not all_emb:
-        return None, [], []
-    return np.vstack(all_emb), all_docs, all_metas
+        result = (None, [], [])
+    else:
+        result = (np.vstack(all_emb), all_docs, all_metas)
+
+    _all_books_cache[cache_key] = result
+    return result
+
+
+# ── Embedding cache ─────────────────────────────────────
+_embedding_cache: dict[str, np.ndarray] = {}
+_EMBED_CACHE_MAX = 200
+
+
+def _get_query_embedding(text: str) -> np.ndarray:
+    """获取查询文本的向量表示，带 LRU 缓存避免重复 API 调用。"""
+    # 标准化缓存键：去除多余空格，统一小写
+    cache_key = " ".join(text.strip().lower().split())
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+
+    client = _get_embed_client()
+    r = client.embeddings.create(model="baai/bge-m3(free)", input=[text])
+    qvec = np.array(r.data[0].embedding, dtype=np.float32)
+    qvec = qvec / np.linalg.norm(qvec)
+
+    # LRU 淘汰
+    if len(_embedding_cache) >= _EMBED_CACHE_MAX:
+        # 删除最早插入的一个键（简单 LRU）
+        oldest_key = next(iter(_embedding_cache))
+        del _embedding_cache[oldest_key]
+    _embedding_cache[cache_key] = qvec
+    return qvec
 
 
 # ── Hybrid search (copied from app.py) ───────────────────
@@ -141,11 +189,11 @@ def _hybrid_search(
     k: int = 10,
     alpha: float = 0.7,
 ) -> list[dict]:
-    """Perform hybrid vector + BM25 search."""
-    client = _get_embed_client()
-    r = client.embeddings.create(model="baai/bge-m3(free)", input=[text])
-    qvec = np.array(r.data[0].embedding, dtype=np.float32)
-    qvec = qvec / np.linalg.norm(qvec)
+    """Perform hybrid vector + BM25 search.
+
+    Uses cached query embedding to avoid repeated API calls for identical queries.
+    """
+    qvec = _get_query_embedding(text)
     vec_scores = embeddings @ qvec
 
     # Vector top-50 candidates
@@ -489,12 +537,19 @@ analyze_case_tool = StructuredTool.from_function(
 # Tool registry
 # ══════════════════════════════════════════════════════════
 
+_tools_cache: Optional[list] = None
+
+
 def get_tools() -> list:
-    """Return all available tools for the medical agent."""
-    return [
+    """Return all available tools for the medical agent. Results are cached."""
+    global _tools_cache
+    if _tools_cache is not None:
+        return _tools_cache
+    _tools_cache = [
         search_textbook_tool,
         calculate_dosage_tool,
         get_normal_values_tool,
         compare_concepts_tool,
         analyze_case_tool,
     ]
+    return _tools_cache
