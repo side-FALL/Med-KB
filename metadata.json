@@ -1,3 +1,6 @@
-version lfs-pointer-legacy
-oid sha256:233ce05468bcf05db3d3efc3f277a2e2337ccb61a22aeb75495abf0c7baf0e8c
-size 104
+{
+  "sdk": "streamlit",
+  "sdk_version": "1.28.0",
+  "app_file": "app.py",
+  "python_version": "3.10"
+}
