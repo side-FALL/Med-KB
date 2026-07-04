@@ -418,6 +418,40 @@ _AUTH_CSS = """
     }
 }
 
+/* ── 首页选项按钮卡片化 ─────────────────────────────────── */
+.auth-options-area button[data-testid="stBaseButton-secondary"],
+.auth-options-area button[data-testid="stBaseButton-primary"] {
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    background: white !important;
+    border: 2px solid #E9ECEF !important;
+    border-radius: 14px !important;
+    padding: 1rem 1.2rem !important;
+    cursor: pointer !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    height: auto !important;
+    min-height: auto !important;
+    font-size: 0.92rem !important;
+    font-weight: 600 !important;
+    color: #212529 !important;
+    box-shadow: none !important;
+}
+
+.auth-options-area button[data-testid="stBaseButton-secondary"]:hover,
+.auth-options-area button[data-testid="stBaseButton-primary"]:hover {
+    border-color: #0D6EFD !important;
+    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12) !important;
+    transform: translateY(-2px) !important;
+}
+
+.auth-options-area button[data-testid="stBaseButton-primary"] {
+    border-color: #0D6EFD !important;
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.04) 0%, rgba(10, 88, 202, 0.02) 100%) !important;
+}
+
 /* ── 隐藏 Streamlit 默认元素（认证页面专用）────────────── */
 .auth-page [data-testid="stSidebar"] {
     display: none;
@@ -449,50 +483,30 @@ def _render_brand():
 
 
 def _render_home_options():
-    """渲染首页三选项：注册、登录、游客。"""
-    st.markdown("""
-    <div class="auth-options fade-in-up">
-        <div class="auth-option-card primary" onclick="this.querySelector('form')?.requestSubmit()">
-            <div class="auth-option-icon">📝</div>
-            <div class="auth-option-content">
-                <div class="auth-option-title">注册新账号</div>
-                <div class="auth-option-desc">创建账号，保存学习记录与个人设置</div>
-            </div>
-            <span class="auth-option-arrow">→</span>
-        </div>
-        <div class="auth-option-card" onclick="this.querySelector('form')?.requestSubmit()">
-            <div class="auth-option-icon">🔑</div>
-            <div class="auth-option-content">
-                <div class="auth-option-title">登录已有账号</div>
-                <div class="auth-option-desc">使用已有账号继续学习</div>
-            </div>
-            <span class="auth-option-arrow">→</span>
-        </div>
-        <div class="auth-option-card" onclick="this.querySelector('form')?.requestSubmit()">
-            <div class="auth-option-icon">👤</div>
-            <div class="auth-option-content">
-                <div class="auth-option-title">游客模式</div>
-                <div class="auth-option-desc">无需注册，立即体验（功能受限）</div>
-            </div>
-            <span class="auth-option-arrow">→</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    """渲染首页三选项：注册、登录、游客。
 
-    # 使用隐藏按钮实现卡片点击
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("📝 注册新账号", use_container_width=True, type="primary", key="btn_register"):
-            st.session_state["auth_mode"] = AUTH_MODE_REGISTER
-            st.rerun()
-    with col2:
-        if st.button("🔑 登录已有账号", use_container_width=True, key="btn_login"):
-            st.session_state["auth_mode"] = AUTH_MODE_LOGIN
-            st.rerun()
-    with col3:
-        if st.button("👤 游客模式", use_container_width=True, key="btn_guest"):
-            st.session_state["auth_mode"] = AUTH_MODE_GUEST
-            st.rerun()
+    使用 Streamlit 按钮作为唯一可交互元素，通过 CSS 将按钮样式
+    覆盖为卡片外观，确保整张卡片区域可点击触发导航。
+    """
+    # 注入作用域标记，CSS 通过 .auth-options-area 精确限定样式范围
+    st.markdown('<div class="auth-options-area">', unsafe_allow_html=True)
+
+    options = [
+        ("📝 注册新账号", AUTH_MODE_REGISTER, True),
+        ("🔑 登录已有账号", AUTH_MODE_LOGIN, False),
+        ("👤 游客模式", AUTH_MODE_GUEST, False),
+    ]
+
+    cols = st.columns(3)
+    for i, (label, mode, is_primary) in enumerate(options):
+        with cols[i]:
+            if st.button(label, use_container_width=True,
+                         type="primary" if is_primary else "secondary",
+                         key=f"btn_{mode}"):
+                st.session_state["auth_mode"] = mode
+                st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _render_password_strength(password: str) -> int:

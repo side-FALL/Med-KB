@@ -16,7 +16,6 @@ import unicodedata
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
-from urllib.parse import urlparse
 from dataclasses import dataclass, field, asdict
 
 logger = logging.getLogger(__name__)
@@ -68,9 +67,6 @@ ISO_DATETIME_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
 )
 """ISO 8601 日期时间格式校验。"""
-
-URL_PATTERN = re.compile(r"^https?://")
-"""URL 格式校验：仅允许 http/https 协议。"""
 
 VALID_SOURCE_TYPES = ("textbook", "search", "chat")
 """学习记录来源类型白名单。"""
@@ -139,26 +135,6 @@ def validate_extra_data(data: dict, field_name: str = "extra_data") -> None:
         )
 
 
-def validate_url(value: str, field_name: str = "url") -> None:
-    """校验 URL 格式，仅允许 http/https 协议。"""
-    if not value:
-        return
-    if not URL_PATTERN.match(value):
-        raise ValidationError(
-            field_name,
-            f"URL 格式不合法: {value!r}，仅允许 http/https 协议",
-        )
-    try:
-        parsed = urlparse(value)
-        if not parsed.netloc:
-            raise ValidationError(
-                field_name,
-                f"URL 缺少域名部分: {value!r}",
-            )
-    except Exception:
-        raise ValidationError(field_name, f"URL 解析失败: {value!r}")
-
-
 def validate_ip_address(value: str, field_name: str = "ip_address") -> None:
     """校验 IP 地址格式（支持 IPv4/IPv6）。"""
     if not value:
@@ -194,12 +170,6 @@ class UserProfile:
 
     email: str = ""
     """邮箱（可选）。"""
-
-    display_name: str = ""
-    """显示名称（可选）。"""
-
-    avatar_url: str = ""
-    """头像 URL（可选）。"""
 
     role: str = "user"
     """角色：user / admin / guest。"""
@@ -248,8 +218,6 @@ class UserProfile:
         if self.email:
             if not EMAIL_PATTERN.match(self.email):
                 raise ValidationError("email", f"邮箱格式不合法: {self.email!r}")
-        if self.avatar_url:
-            validate_url(self.avatar_url, "avatar_url")
         if self.created_at:
             validate_iso_datetime(self.created_at, "created_at")
         if self.role not in ("user", "admin", "guest"):
@@ -311,9 +279,6 @@ class UserPreferences:
 
     font_size: int = 14
     """字体大小。"""
-
-    notifications_enabled: bool = True
-    """是否启用通知。"""
 
     search_config: dict = field(default_factory=lambda: {
         "top_k": 5,
@@ -446,15 +411,6 @@ class AppConfig:
     schema_version: str = SCHEMA_VERSION
     """数据模型版本号。"""
 
-    min_client_version: str = "1.0.0"
-    """最低兼容客户端版本。"""
-
-    maintenance_mode: bool = False
-    """是否处于维护模式。"""
-
-    maintenance_message: str = ""
-    """维护模式提示语。"""
-
     extra_data: dict = field(default_factory=dict)
     """扩展字段。"""
 
@@ -474,15 +430,6 @@ class FeatureFlags:
 
     enable_guest_mode: bool = True
     """是否允许游客模式。"""
-
-    enable_learning_tracking: bool = True
-    """是否启用学习记录追踪。"""
-
-    enable_notifications: bool = False
-    """是否启用通知功能。"""
-
-    enable_admin_panel: bool = False
-    """是否启用管理面板。"""
 
     extra_data: dict = field(default_factory=dict)
     """扩展字段。"""
@@ -624,9 +571,6 @@ class LogData:
 
     usage_stats: dict = field(default_factory=lambda: {
         "total_users": 0,
-        "total_queries_today": 0,
-        "total_logins_today": 0,
-        "last_stats_reset_at": "",
     })
     """全局使用统计。"""
 
@@ -676,9 +620,6 @@ class LogData:
             error_logs=data.get("error_logs", []),
             usage_stats=data.get("usage_stats", {
                 "total_users": 0,
-                "total_queries_today": 0,
-                "total_logins_today": 0,
-                "last_stats_reset_at": "",
             }),
             extra_data=data.get("extra_data", {}),
         )
@@ -799,8 +740,6 @@ def create_default_user(
         "username": username,
         "password_hash": password_hash,
         "email": email,
-        "display_name": username,
-        "avatar_url": "",
         "role": role,
         "created_at": now,
         "last_login_at": now,
@@ -811,7 +750,6 @@ def create_default_user(
         "language": "zh-CN",
         "default_model": "",
         "font_size": 14,
-        "notifications_enabled": True,
         "search_config": {
             "top_k": 5,
             "score_threshold": 0.5,
@@ -846,17 +784,11 @@ def create_default_config() -> dict:
         app_config={
             "app_name": "Med-KB",
             "schema_version": SCHEMA_VERSION,
-            "min_client_version": "1.0.0",
-            "maintenance_mode": False,
-            "maintenance_message": "",
             "extra_data": {},
         },
         feature_flags={
             "enable_registration": True,
             "enable_guest_mode": True,
-            "enable_learning_tracking": True,
-            "enable_notifications": False,
-            "enable_admin_panel": False,
             "extra_data": {},
         },
         extra_data={},
@@ -876,9 +808,6 @@ def create_default_logs() -> dict:
         error_logs=[],
         usage_stats={
             "total_users": 0,
-            "total_queries_today": 0,
-            "total_logins_today": 0,
-            "last_stats_reset_at": utcnow_iso(),
         },
         extra_data={},
     )
