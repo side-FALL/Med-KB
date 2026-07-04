@@ -1,6 +1,6 @@
 """🏥 医学教材知识库 — v2（多功能版）
 
-入口文件：页面配置、模块导入和主流程编排。
+入口文件：页面配置、认证流程、DOS 防护和主流程编排。
 性能优化：模式模块延迟导入，减少首次可交互时间（TTI）。
 """
 
@@ -15,11 +15,19 @@ except ImportError:
     pass
 
 from __init__ import __version__
-from config import MODELS, get_api_key
+from config import MODELS, get_api_key, check_env_security
+
+# 启动时检查 .env 安全状态
+check_env_security()
 from ui_styles import inject_global_styles
 from ui_components import (
     load_manifest, get_book_stats, render_sidebar,
     render_scope_and_model_selector, render_update_announcement,
+)
+from dos_protection import check_rate_limit, render_rate_limit_banner
+from auth_components import (
+    render_auth_page, is_authenticated, get_auth_username,
+    get_auth_mode, logout, set_auth_success,
 )
 
 # ── 页面配置 ────────────────────────────────────────────
@@ -35,12 +43,35 @@ inject_global_styles()
 _defaults = {
     "hist": [], "conversation_turns": [], "use_context": True,
     "alpha": 0.7, "q": "", "favorites": [], "mode": "💬 智能问答",
+    # 认证状态默认值
+    "authenticated": False, "auth_username": "游客",
+    "auth_mode_type": "guest", "auth_mode": "home",
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ── 数据加载（按需加载教材）──────────────────────────────
+# ── DOS 防护：限流检查（最先执行，保护所有后续操作）────
+if render_rate_limit_banner():
+    st.stop()
+
+allowed, rate_msg = check_rate_limit()
+if not allowed:
+    st.error(rate_msg)
+    st.stop()
+
+# ── 认证检查 ─────────────────────────────────────────────
+# 检查用户是否已认证；未认证则显示认证页面（注册/登录/游客）
+if not is_authenticated():
+    def on_auth_submit(action: str, username: str | None, password: str | None):
+        """认证提交回调：游客模式直接通过。"""
+        if action == "guest":
+            set_auth_success("游客", "guest")
+
+    render_auth_page(on_submit_callback=on_auth_submit)
+    st.stop()
+
+# ── 数据加载（按需加载教材，仅认证后执行）──────────────────
 manifest = load_manifest()
 if manifest is None:
     st.error("books/ 目录缺失，请先运行 split_books.py"); st.stop()
@@ -53,6 +84,58 @@ if not CS_API_KEY:
     st.error("未配置 CS_API_KEY"); st.stop()
 
 # ── 侧边栏 ─────────────────────────────────────────────
+# 用户信息区域（已登录用户显示）
+with st.sidebar:
+    username = get_auth_username()
+    auth_mode = get_auth_mode()
+
+    if auth_mode != "guest":
+        # 已注册用户
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, rgba(13,110,253,0.08) 0%, rgba(10,88,202,0.04) 100%);
+                    border-radius:12px; padding:0.8rem 1rem; margin-bottom:0.8rem;
+                    border:1px solid rgba(13,110,253,0.15);">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
+                <span style="font-size:1.3rem;">👤</span>
+                <span style="font-weight:700; color:#0A58CA; font-size:0.95rem;">{username}</span>
+            </div>
+            <div style="font-size:0.78rem; color:#6C757D;">
+                已登录 · 数据已同步
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 用户快捷操作
+        col_logout, col_prefs = st.columns(2)
+        with col_logout:
+            if st.button("🚪 退出登录", use_container_width=True, key="sidebar_logout"):
+                logout()
+                st.rerun()
+        with col_prefs:
+            if st.button("⚙️ 设置", use_container_width=True, key="sidebar_prefs"):
+                st.info("个人设置功能开发中...")
+    else:
+        # 游客模式
+        st.markdown(f"""
+        <div style="background:#FFF8E1; border-radius:12px; padding:0.8rem 1rem; margin-bottom:0.8rem;
+                    border:1px solid #FFE082;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
+                <span style="font-size:1.3rem;">👤</span>
+                <span style="font-weight:700; color:#F57F17; font-size:0.95rem;">游客模式</span>
+            </div>
+            <div style="font-size:0.78rem; color:#795548;">
+                数据不会保存 · 功能受限
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("📝 注册/登录", use_container_width=True, key="sidebar_login_btn"):
+            logout()
+            st.rerun()
+
+    st.divider()
+
+# 渲染主侧边栏（检索设置、对话设置、搜索历史等）
 top_k, alpha, use_context = render_sidebar(book_count, total_chunks)
 
 # ── 主界面标题 ──────────────────────────────────────────
