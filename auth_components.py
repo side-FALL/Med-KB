@@ -133,79 +133,6 @@ _AUTH_CSS = """
     line-height: 1.5;
 }
 
-/* ── 选项卡片 ─────────────────────────────────────────── */
-.auth-options {
-    display: flex;
-    flex-direction: column;
-    gap: 0.9rem;
-    margin-top: 1.5rem;
-}
-
-.auth-option-card {
-    background: white;
-    border: 2px solid #E9ECEF;
-    border-radius: 14px;
-    padding: 1.2rem 1.4rem;
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    text-decoration: none;
-}
-
-.auth-option-card:hover {
-    border-color: #0D6EFD;
-    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12);
-    transform: translateY(-2px);
-}
-
-.auth-option-card.primary {
-    border-color: #0D6EFD;
-    background: linear-gradient(135deg, rgba(13, 110, 253, 0.04) 0%, rgba(10, 88, 202, 0.02) 100%);
-}
-
-.auth-option-icon {
-    font-size: 2rem;
-    width: 52px;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #F0F7FF 0%, #E8F4FD 100%);
-    border-radius: 12px;
-    flex-shrink: 0;
-}
-
-.auth-option-content {
-    flex: 1;
-}
-
-.auth-option-title {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: #212529;
-    margin: 0 0 0.2rem 0;
-}
-
-.auth-option-desc {
-    font-size: 0.82rem;
-    color: #6C757D;
-    margin: 0;
-    line-height: 1.4;
-}
-
-.auth-option-arrow {
-    color: #ADB5BD;
-    font-size: 1.2rem;
-    transition: transform 0.2s ease;
-}
-
-.auth-option-card:hover .auth-option-arrow {
-    transform: translateX(3px);
-    color: #0D6EFD;
-}
-
 /* ── 表单卡片 ─────────────────────────────────────────── */
 .auth-form-card {
     background: white;
@@ -402,22 +329,66 @@ _AUTH_CSS = """
 }
 
 @media (max-width: 480px) {
-    .auth-option-card {
-        padding: 1rem;
-    }
-
-    .auth-option-icon {
-        width: 42px;
-        height: 42px;
-        font-size: 1.6rem;
-    }
-
     .auth-form-card {
         padding: 1.2rem 1rem;
         border-radius: 12px;
     }
+}
 
-    /* 移动端卡片纵向堆叠 */
+/* ── 首页卡片按钮样式 ──────────────────────────────────── */
+.auth-options-area [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlock"] {
+    padding: 0 4px;
+}
+
+.auth-options-area .stButton {
+    width: 100%;
+}
+
+.auth-options-area .stButton > button {
+    background: white !important;
+    border: 2px solid #E9ECEF !important;
+    border-radius: 14px !important;
+    padding: 1.2rem 1.4rem !important;
+    cursor: pointer !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    width: 100% !important;
+    text-align: left !important;
+    white-space: normal !important;
+    height: auto !important;
+    min-height: 80px !important;
+}
+
+/* primary 按钮高亮边框 */
+.auth-options-area button[data-testid="stBaseButton-primary"] {
+    border-color: #0D6EFD !important;
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.04) 0%, rgba(10, 88, 202, 0.02) 100%) !important;
+}
+
+/* hover 效果 */
+.auth-options-area .stButton > button:hover {
+    border-color: #0D6EFD !important;
+    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12) !important;
+    transform: translateY(-2px);
+}
+
+/* 箭头伪元素 */
+.auth-options-area .stButton > button::after {
+    content: "→";
+    font-size: 1.2rem;
+    color: #ADB5BD;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding-left: 0.6rem;
+    transition: all 0.2s ease;
+}
+
+.auth-options-area .stButton > button:hover::after {
+    transform: translateX(3px);
+    color: #0D6EFD;
+}
+
+/* 移动端（≤768px）卡片纵向堆叠，宽度100% */
+@media (max-width: 768px) {
     .auth-options-area [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
     }
@@ -426,57 +397,6 @@ _AUTH_CSS = """
         width: 100% !important;
         flex: none !important;
     }
-}
-
-/* ── 首页选项卡片容器 ──────────────────────────────────── */
-.auth-options-area [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlock"] {
-    position: relative;
-}
-
-.auth-options-area .auth-option-card {
-    position: relative;
-    z-index: 1;
-    pointer-events: none;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ── 首页选项按钮覆盖层 ─────────────────────────────────── */
-.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"],
-.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"] {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
-    min-height: 90px !important;
-    background: transparent !important;
-    border: 2px solid transparent !important;
-    border-radius: 14px !important;
-    cursor: pointer !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    z-index: 2;
-    opacity: 0;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"]:hover,
-.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"]:hover {
-    border-color: #0D6EFD !important;
-    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12) !important;
-    opacity: 1;
-}
-
-/* hover 按钮时联动卡片视觉反馈 */
-.auth-options-area [data-testid="stHorizontalBlock"]:hover .auth-option-card {
-    border-color: #0D6EFD;
-    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12);
-    transform: translateY(-2px);
-}
-
-.auth-options-area [data-testid="stHorizontalBlock"]:hover .auth-option-arrow {
-    transform: translateX(3px);
-    color: #0D6EFD;
 }
 
 /* ── 隐藏 Streamlit 默认元素（认证页面专用）────────────── */
@@ -512,10 +432,9 @@ def _render_brand():
 def _render_home_options():
     """渲染首页三选项：注册、登录、游客。
 
-    使用 HTML 渲染卡片视觉容器，Streamlit 按钮作为实际交互元素。
-    通过 CSS 使按钮完全融入卡片，确保整张卡片区域可点击。
+    每个选项使用 st.button 直接渲染为卡片样式的可点击按钮，
+    CSS 通过 .auth-options-area 作用域控制卡片外观（白色背景、圆角、hover 效果）。
     """
-    # 注入作用域标记，CSS 通过 .auth-options-area 精确限定样式范围
     st.markdown('<div class="auth-options-area">', unsafe_allow_html=True)
 
     options = [
@@ -527,19 +446,8 @@ def _render_home_options():
     cols = st.columns(3)
     for i, (icon, title, desc, mode, is_primary) in enumerate(options):
         with cols[i]:
-            # 渲染卡片视觉容器（纯展示）
-            st.markdown(f"""
-            <div class="auth-option-card {'primary' if is_primary else ''}">
-                <div class="auth-option-icon">{icon}</div>
-                <div class="auth-option-content">
-                    <div class="auth-option-title">{title}</div>
-                    <div class="auth-option-desc">{desc}</div>
-                </div>
-                <div class="auth-option-arrow">→</div>
-            </div>
-            """, unsafe_allow_html=True)
-            # 按钮作为实际交互元素，覆盖在卡片上方
-            if st.button(f"选择{title}", use_container_width=True,
+            label = f"{icon} **{title}**\n\n{desc}"
+            if st.button(label, use_container_width=True,
                          type="primary" if is_primary else "secondary",
                          key=f"btn_{mode}"):
                 st.session_state["auth_mode"] = mode
