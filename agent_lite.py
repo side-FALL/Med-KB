@@ -17,6 +17,7 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from tools import get_tools
+from llm_utils import rewrite_query
 
 # ── ReAct Prompt ─────────────────────────────────────
 
@@ -209,6 +210,7 @@ def run_agent(
     model: str = "deepseek/deepseek-v4-flash(free)",
     api_url: str = API_URL,
     max_steps: int = 5,
+    conversation_history: Optional[list[tuple[str, str]]] = None,
 ) -> dict:
     """运行轻量版 Agent（不依赖 LangChain）
 
@@ -218,6 +220,7 @@ def run_agent(
         model: 模型名称
         api_url: API 端点 URL
         max_steps: 最大推理步数
+        conversation_history: 对话历史 [(问题, 回答), ...]
 
     Returns:
         dict: {"output": str, "steps": list, "error": str|None}
@@ -226,6 +229,10 @@ def run_agent(
         return {"output": "", "steps": [], "error": "未配置 API Key"}
 
     try:
+        # 查询重写：含代词追问时自动替换为完整概念
+        if conversation_history:
+            prev_queries = [q for q, _ in conversation_history]
+            query = rewrite_query(query, prev_queries, api_key=api_key, api_url=api_url, model=model)
         # 获取工具列表
         tools = get_tools()
         tools_desc = "\n".join([
@@ -346,6 +353,11 @@ def run_agent_stream(
         return
 
     try:
+        # 查询重写：含代词追问时自动替换为完整概念
+        if conversation_history:
+            prev_queries = [q for q, _ in conversation_history]
+            query = rewrite_query(query, prev_queries, api_key=api_key, api_url=api_url, model=model)
+
         # 获取工具列表
         tools = get_tools()
         tools_desc = "\n".join([
