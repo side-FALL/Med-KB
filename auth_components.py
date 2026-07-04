@@ -416,40 +416,67 @@ _AUTH_CSS = """
         padding: 1.2rem 1rem;
         border-radius: 12px;
     }
+
+    /* 移动端卡片纵向堆叠 */
+    .auth-options-area [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+
+    .auth-options-area [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlock"] {
+        width: 100% !important;
+        flex: none !important;
+    }
 }
 
-/* ── 首页选项按钮卡片化 ─────────────────────────────────── */
-.auth-options-area button[data-testid="stBaseButton-secondary"],
-.auth-options-area button[data-testid="stBaseButton-primary"] {
-    display: flex !important;
-    align-items: center !important;
+/* ── 首页选项卡片容器 ──────────────────────────────────── */
+.auth-options-area [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlock"] {
+    position: relative;
+}
+
+.auth-options-area .auth-option-card {
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── 首页选项按钮覆盖层 ─────────────────────────────────── */
+.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"],
+.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"] {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100% !important;
-    background: white !important;
-    border: 2px solid #E9ECEF !important;
+    height: 100% !important;
+    min-height: 90px !important;
+    background: transparent !important;
+    border: 2px solid transparent !important;
     border-radius: 14px !important;
-    padding: 1rem 1.2rem !important;
     cursor: pointer !important;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    text-align: left !important;
-    justify-content: flex-start !important;
-    height: auto !important;
-    min-height: auto !important;
-    font-size: 0.92rem !important;
-    font-weight: 600 !important;
-    color: #212529 !important;
-    box-shadow: none !important;
+    z-index: 2;
+    opacity: 0;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
-.auth-options-area button[data-testid="stBaseButton-secondary"]:hover,
-.auth-options-area button[data-testid="stBaseButton-primary"]:hover {
+.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"]:hover,
+.auth-options-area [data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"]:hover {
     border-color: #0D6EFD !important;
     box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12) !important;
-    transform: translateY(-2px) !important;
+    opacity: 1;
 }
 
-.auth-options-area button[data-testid="stBaseButton-primary"] {
-    border-color: #0D6EFD !important;
-    background: linear-gradient(135deg, rgba(13, 110, 253, 0.04) 0%, rgba(10, 88, 202, 0.02) 100%) !important;
+/* hover 按钮时联动卡片视觉反馈 */
+.auth-options-area [data-testid="stHorizontalBlock"]:hover .auth-option-card {
+    border-color: #0D6EFD;
+    box-shadow: 0 6px 20px rgba(13, 110, 253, 0.12);
+    transform: translateY(-2px);
+}
+
+.auth-options-area [data-testid="stHorizontalBlock"]:hover .auth-option-arrow {
+    transform: translateX(3px);
+    color: #0D6EFD;
 }
 
 /* ── 隐藏 Streamlit 默认元素（认证页面专用）────────────── */
@@ -485,22 +512,34 @@ def _render_brand():
 def _render_home_options():
     """渲染首页三选项：注册、登录、游客。
 
-    使用 Streamlit 按钮作为唯一可交互元素，通过 CSS 将按钮样式
-    覆盖为卡片外观，确保整张卡片区域可点击触发导航。
+    使用 HTML 渲染卡片视觉容器，Streamlit 按钮作为实际交互元素。
+    通过 CSS 使按钮完全融入卡片，确保整张卡片区域可点击。
     """
     # 注入作用域标记，CSS 通过 .auth-options-area 精确限定样式范围
     st.markdown('<div class="auth-options-area">', unsafe_allow_html=True)
 
     options = [
-        ("📝 注册新账号", AUTH_MODE_REGISTER, True),
-        ("🔑 登录已有账号", AUTH_MODE_LOGIN, False),
-        ("👤 游客模式", AUTH_MODE_GUEST, False),
+        ("📝", "注册新账号", "创建您的专属学习账号", AUTH_MODE_REGISTER, True),
+        ("🔑", "登录已有账号", "欢迎回来，继续学习之旅", AUTH_MODE_LOGIN, False),
+        ("👤", "游客模式", "无需注册，立即开始探索", AUTH_MODE_GUEST, False),
     ]
 
     cols = st.columns(3)
-    for i, (label, mode, is_primary) in enumerate(options):
+    for i, (icon, title, desc, mode, is_primary) in enumerate(options):
         with cols[i]:
-            if st.button(label, use_container_width=True,
+            # 渲染卡片视觉容器（纯展示）
+            st.markdown(f"""
+            <div class="auth-option-card {'primary' if is_primary else ''}">
+                <div class="auth-option-icon">{icon}</div>
+                <div class="auth-option-content">
+                    <div class="auth-option-title">{title}</div>
+                    <div class="auth-option-desc">{desc}</div>
+                </div>
+                <div class="auth-option-arrow">→</div>
+            </div>
+            """, unsafe_allow_html=True)
+            # 按钮作为实际交互元素，覆盖在卡片上方
+            if st.button(f"选择{title}", use_container_width=True,
                          type="primary" if is_primary else "secondary",
                          key=f"btn_{mode}"):
                 st.session_state["auth_mode"] = mode

@@ -400,13 +400,6 @@ class UserDataManager:
             users[username] = user_data
             root["users"] = users
 
-            # 更新 profile 中的 last_login_at
-            profile = user_data.get("profile", {})
-            profile["last_login_at"] = utcnow_iso()
-            user_data["profile"] = profile
-            users[username] = user_data
-            root["users"] = users
-
             self._save_root(root)
             logger.info("用户数据读取成功: %s", username)
             return user_data

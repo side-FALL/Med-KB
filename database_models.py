@@ -177,9 +177,6 @@ class UserProfile:
     created_at: str = ""
     """注册时间（ISO 8601）。"""
 
-    last_login_at: str = ""
-    """最后登录时间（ISO 8601）。"""
-
     last_active_at: str = ""
     """最后活跃时间（用于过期判断，ISO 8601）。"""
 
@@ -279,13 +276,6 @@ class UserPreferences:
 
     font_size: int = 14
     """字体大小。"""
-
-    search_config: dict = field(default_factory=lambda: {
-        "top_k": 5,
-        "score_threshold": 0.5,
-        "selected_books": [],
-    })
-    """检索配置。"""
 
     extra_data: dict = field(default_factory=dict)
     """扩展字段。"""
@@ -742,7 +732,6 @@ def create_default_user(
         "email": email,
         "role": role,
         "created_at": now,
-        "last_login_at": now,
         "last_active_at": now,
     }
     preferences = {
@@ -750,11 +739,6 @@ def create_default_user(
         "language": "zh-CN",
         "default_model": "",
         "font_size": 14,
-        "search_config": {
-            "top_k": 5,
-            "score_threshold": 0.5,
-            "selected_books": [],
-        },
         "extra_data": {},
     }
     stats = {
