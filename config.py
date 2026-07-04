@@ -177,8 +177,40 @@ def _is_sha256_hash(hash_str: str) -> bool:
     return len(hash_str) == 64 and all(c in "0123456789abcdef" for c in hash_str)
 
 
+def _persist_model_authed(username: str) -> None:
+    """将 model_authed=True 持久化到用户数据（JSONBin）。
+
+    仅在已注册用户（非游客）密码验证成功后调用。
+    写入 user_data.extra_data.model_authed 字段，下次登录时自动恢复。
+
+    Args:
+        username: 已登录用户名
+    """
+    try:
+        from user_data_manager import UserDataManager
+        manager = st.session_state.get("auth_data_manager")
+        if manager is None:
+            manager = UserDataManager()
+            st.session_state["auth_data_manager"] = manager
+        user_data = manager.get_user_readonly(username)
+        extra = user_data.get("extra_data", {})
+        if extra.get("model_authed"):
+            return  # 已持久化，无需重复写入
+        extra["model_authed"] = True
+        user_data["extra_data"] = extra
+        manager.update_user(username, user_data)
+        logger.info("付费模型认证状态已持久化: user=%s", username)
+    except Exception as exc:
+        logger.warning("持久化 model_authed 失败: %s", exc)
+
+
 def check_model_password() -> bool:
-    """验证付费模型密码。用户输入正确密码后缓存到 session_state。
+    """验证付费模型密码。用户输入正确密码后缓存到 session_state 并持久化到用户数据。
+
+    认证状态恢复机制：
+    - 已注册用户首次输入密码后，model_authed 写入 JSONBin 用户数据
+    - 下次登录时自动从用户数据恢复认证状态，无需重复输入
+    - 游客模式不触发缓存逻辑，每次仍需输入
 
     安全机制：
     - .env 中 PASSWORD 存储 bcrypt 哈希值（推荐，含随机盐）
@@ -191,9 +223,22 @@ def check_model_password() -> bool:
     if not expected_hash:
         return True  # 未配置密码则跳过验证
 
+    # 1. session 缓存命中（同一会话内重复调用时快速返回）
     if st.session_state.get("model_authed", False):
         return True
 
+    # 2. 已登录用户：从持久化的用户数据中恢复认证状态
+    auth_mode = st.session_state.get("auth_mode_type", "")
+    if auth_mode in ("login", "register"):
+        username = st.session_state.get("auth_username", "")
+        if username:
+            user_data = st.session_state.get("user_data")
+            if user_data:
+                if user_data.get("extra_data", {}).get("model_authed", False):
+                    st.session_state["model_authed"] = True
+                    return True
+
+    # 3. 弹出密码输入表单
     st.info("🔒 输入密码后可使用付费模型")
     with st.form("password_form", clear_on_submit=True):
         pwd = st.text_input("请输入访问密码", type="password")
@@ -214,6 +259,9 @@ def check_model_password() -> bool:
 
             if matched:
                 st.session_state["model_authed"] = True
+                # 已注册用户：持久化认证状态到 JSONBin
+                if auth_mode in ("login", "register") and username:
+                    _persist_model_authed(username)
                 st.rerun()
             else:
                 st.error("❌ 密码错误")

@@ -213,19 +213,25 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
     selected_books = ALL_BOOKS
     if scope == "选择教材":
         with st.expander("📖 选择要检索的教材", expanded=True):
+            # 初始化 session_state（在渲染 widget 之前）
+            if "selected_books" not in st.session_state:
+                st.session_state.selected_books = ALL_BOOKS
+
             c1, c2 = st.columns([4, 1])
             with c2:
                 if st.button("全选", use_container_width=True, key="sel_all"):
                     st.session_state.selected_books = ALL_BOOKS
+                    st.rerun()
                 if st.button("清空", use_container_width=True, key="sel_clr"):
                     st.session_state.selected_books = []
-            if "selected_books" not in st.session_state:
-                st.session_state.selected_books = ALL_BOOKS
+                    st.rerun()
+
+            # 使用 key 绑定 session_state，不使用 default 参数避免状态冲突
             selected_books = st.multiselect("选择教材", ALL_BOOKS,
                 default=st.session_state.selected_books,
+                key="selected_books",
                 format_func=lambda x: f"{x} ({book_stats[x]}块)",
                 label_visibility="collapsed")
-            st.session_state.selected_books = selected_books
             if selected_books:
                 n = sum(book_stats.get(b, 0) for b in selected_books)
                 st.caption(f"已选 {len(selected_books)}/{book_count} 本，{n} 个文本块")
@@ -301,17 +307,17 @@ def render_ai_bubble(label: str = ""):
 
 
 def render_source_cards(hits: list[dict]):
-    """渲染参考来源卡片。"""
+    """渲染参考来源卡片（独立区域版本，供其他模式使用）。"""
     if not hits:
         return
-    
+
     st.markdown("""
     <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.8rem;">
         <span style="font-size:1.2rem;">📚</span>
         <span style="font-weight:700; color:#0A58CA; font-size:0.95rem;">参考来源</span>
     </div>
     """, unsafe_allow_html=True)
-    
+
     cols = st.columns(min(3, len(hits[:5])))
     for i, h in enumerate(hits[:5]):
         with cols[i % 3]:
@@ -328,10 +334,10 @@ def render_source_cards(hits: list[dict]):
                 score_color = "#C62828"
                 score_bg = "#FFEBEE"
                 score_label = "低相关"
-            
+
             chapter = h.get("chapter", "")
             chapter_html = f'<div class="source-chapter">{chapter[:25]}</div>' if chapter else ""
-            
+
             st.markdown(
                 f'<div class="source-card fade-in-up">'
                 f'<div class="source-header">'
@@ -342,6 +348,52 @@ def render_source_cards(hits: list[dict]):
                 f'<span class="source-score" style="background:{score_bg}; color:{score_color};">{score_label} {score:.0%}</span>'
                 f'</div>'
                 f'<div class="source-text">{h["text"][:150]}…</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_source_cards_inline(hits: list[dict]):
+    """渲染参考来源卡片（嵌入聊天气泡内的紧凑版本）。
+
+    以可折叠的 expander 形式嵌入 AI 回答气泡内部，
+    避免来源信息占用过多垂直空间。
+    """
+    if not hits:
+        return
+
+    with st.expander(f"📚 参考来源 ({len(hits[:5])} 条)", expanded=False):
+        for i, h in enumerate(hits[:5]):
+            score = h.get("similarity", 0)
+            if score > 0.8:
+                score_color = "#2E7D32"
+                score_bg = "#E8F5E9"
+                score_label = "高相关"
+            elif score > 0.6:
+                score_color = "#F57F17"
+                score_bg = "#FFF8E1"
+                score_label = "中相关"
+            else:
+                score_color = "#C62828"
+                score_bg = "#FFEBEE"
+                score_label = "低相关"
+
+            chapter = h.get("chapter", "")
+            chapter_html = (
+                f'<div class="source-chapter">{chapter[:30]}</div>' if chapter else ""
+            )
+
+            st.markdown(
+                f'<div class="source-card-inline">'
+                f'  <div class="source-header">'
+                f'    <div>'
+                f'      <div class="source-book">{h["book"][:25]}</div>'
+                f'      {chapter_html}'
+                f'    </div>'
+                f'    <span class="source-score" style="background:{score_bg}; color:{score_color};">'
+                f'      {score_label} {score:.0%}</span>'
+                f'  </div>'
+                f'  <div class="source-text">{h["text"][:200]}…</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )

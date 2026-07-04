@@ -802,11 +802,9 @@ def _handle_register(username: str, password: str, on_submit_callback=None):
         st.session_state["register_success"] = True
         st.session_state["register_username"] = username
 
-        # 设置认证状态（自动登录）
-        set_auth_success(username, "register")
-
-        # 存储用户数据到 session_state
+        # 先存储用户数据，再设置认证状态（set_auth_success 需读取 user_data 恢复 model_authed）
         st.session_state["user_data"] = user_data
+        set_auth_success(username, "register")
 
         # 跳转
         st.rerun()
@@ -837,11 +835,9 @@ def _handle_login(username: str, password: str, on_submit_callback=None):
         # 登录成功
         st.session_state["login_success"] = True
 
-        # 设置认证状态
-        set_auth_success(username, "login")
-
-        # 存储用户数据到 session_state
+        # 先存储用户数据，再设置认证状态（set_auth_success 需读取 user_data 恢复 model_authed）
         st.session_state["user_data"] = user_data
+        set_auth_success(username, "login")
 
         # 跳转
         st.rerun()
@@ -909,6 +905,9 @@ def hide_auth_loading():
 def set_auth_success(username: str, mode: str):
     """设置认证成功状态。
 
+    对于已注册用户（login/register），自动从用户数据中恢复
+    model_authed 持久化状态，实现付费模型密码缓存。
+
     Args:
         username: 用户名（游客模式为 "游客"）
         mode: "register" / "login" / "guest"
@@ -916,6 +915,13 @@ def set_auth_success(username: str, mode: str):
     st.session_state["authenticated"] = True
     st.session_state["auth_username"] = username
     st.session_state["auth_mode_type"] = mode
+
+    # 已注册用户：从持久化的用户数据中恢复 model_authed 状态
+    if mode in ("login", "register"):
+        user_data = st.session_state.get("user_data")
+        if user_data and user_data.get("extra_data", {}).get("model_authed", False):
+            st.session_state["model_authed"] = True
+
     hide_auth_loading()
 
 
@@ -935,13 +941,18 @@ def get_auth_mode() -> str:
 
 
 def logout():
-    """退出登录，重置认证状态。"""
+    """退出登录，重置认证状态。
+
+    清除 session 中的 model_authed，但不清除用户数据（JSONBin）中的持久化状态，
+    下次登录时仍可自动恢复付费模型认证。
+    """
     for key in [
         "authenticated", "auth_username", "auth_mode_type", "auth_mode",
         "auth_loading", "auth_loading_message",
         "register_error", "register_success", "register_username",
         "login_error", "login_success",
         "user_data",
+        "model_authed",  # 仅清除 session 缓存，持久化状态保留在 JSONBin 中
     ]:
         st.session_state.pop(key, None)
 
