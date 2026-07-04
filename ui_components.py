@@ -253,16 +253,17 @@ def render_update_announcement():
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.2 更新公告</h4>
-            <p><strong>多模型支持 + 性能优化：</strong></p>
+            <h4>v2.2.3 更新公告</h4>
+            <p><strong>用户系统 + 交互优化：</strong></p>
             <ul>
-                <li>🤖 多模型支持：MiMo V2.5、火山方舟 DeepSeek</li>
-                <li>⚡ 响应优化：Embedding 缓存、规则引擎查询重写</li>
-                <li>🛡️ 高可用：模型降级、429 限流重试</li>
-                <li>🆓 免费模型提示：请求过多会限制，可切换其他模型</li>
+                <li>👤 用户系统：注册/登录/游客模式，数据云端同步</li>
+                <li>🔐 密码缓存：付费模型认证状态自动保存</li>
+                <li>💬 聊天式交互：问答和智能体统一为对话布局</li>
+                <li>🔍 查询重写：智能体模式支持代词追问</li>
+                <li>🛡️ DOS防护：请求限流保护</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                遇到限流错误时，请切换到其他模型
+                注册账号可保存学习数据，游客模式不保存
             </p>
         </div>
     </span>
