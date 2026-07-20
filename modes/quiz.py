@@ -3,6 +3,7 @@
 性能优化：教材数据按需加载，流式显示 AI 出题结果。
 """
 
+import logging
 import re
 
 import streamlit as st
@@ -13,6 +14,26 @@ from ui_components import (
     fix_latex_formulas, load_selected_books, render_empty_state,
 )
 from llm_utils import QUIZ_SYSTEM_PROMPT, build_quiz_message, call_llm_stream
+
+logger = logging.getLogger(__name__)
+
+
+def _record_learning(query: str, topic: str = "") -> None:
+    """记录学习行为（仅登录用户），失败不影响主流程。"""
+    if st.session_state.get("auth_mode_type") == "guest":
+        return
+    try:
+        manager = st.session_state.get("auth_data_manager")
+        username = st.session_state.get("auth_username", "")
+        if manager and username:
+            manager.add_learning_record(
+                username=username,
+                topic=topic or query[:50],
+                query=query,
+                source_type="quiz",
+            )
+    except Exception as exc:
+        logger.warning("记录学习行为失败: %s", exc)
 
 
 def render(
@@ -62,6 +83,9 @@ def render(
                 st.warning("未找到相关教材内容，请换个主题试试。")
 
         if quiz_raw:
+            # 记录学习行为
+            _record_learning(quiz_topic.strip(), topic=quiz_topic.strip())
+
             questions, answers = [], []
             parts = re.split(r'===题目\d+===', quiz_raw)
             ans_parts = re.split(r'===答案\d+===', quiz_raw)

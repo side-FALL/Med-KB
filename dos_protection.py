@@ -258,12 +258,12 @@ def _get_user_key() -> str:
     """获取当前用户的唯一标识。
 
     优先级：
-    1. 已登录用户名（session_state 中的 logged_in_user）
+    1. 已登录用户名（session_state 中的 auth_username）
     2. 客户端 IP 地址
     3. 会话 ID（兜底）
     """
     # 1. 已登录用户
-    username = st.session_state.get("logged_in_user", "")
+    username = st.session_state.get("auth_username", "")
     if username:
         return f"user:{_sanitize_log_value(username)}"
 
@@ -313,7 +313,7 @@ def check_rate_limit(
         - allowed=False, message="...": 拦截，message 为提示信息
     """
     user_key = _get_user_key()
-    username = st.session_state.get("logged_in_user", "")
+    username = st.session_state.get("auth_username", "")
 
     # 提取客户端 IP（用于白名单检查）
     client_ip = ""

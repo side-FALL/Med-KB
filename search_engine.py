@@ -35,10 +35,10 @@ def _tokenize(text: str) -> list[str]:
 @st.cache_resource
 def _get_embed_client() -> OpenAI:
     """获取 Embedding API 客户端（单例）。"""
-    cs_api_key = get_api_key("cherryin")
+    api_key = get_api_key("siliconflow")
     return OpenAI(
-        api_key=cs_api_key,
-        base_url=MODEL_PROVIDERS["cherryin"]["embed_url"],
+        api_key=api_key,
+        base_url=MODEL_PROVIDERS["siliconflow"]["embed_url"],
         timeout=15.0,
     )
 
@@ -50,7 +50,7 @@ def get_embedding(text: str) -> bytes:
     """获取 Embedding 向量，使用 Streamlit 缓存持久化。"""
     try:
         client = _get_embed_client()
-        r = client.embeddings.create(model="baai/bge-m3(free)", input=[text])
+        r = client.embeddings.create(model="BAAI/bge-m3", input=[text])
         vec = np.array(r.data[0].embedding, dtype=np.float32)
         return (vec / np.linalg.norm(vec)).tobytes()
     except Exception as e:

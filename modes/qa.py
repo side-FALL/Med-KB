@@ -7,6 +7,8 @@
 - 新消息自动滚动到底部
 """
 
+import logging
+
 import streamlit as st
 
 from config import MODELS, get_model_api_config
@@ -19,6 +21,26 @@ from llm_utils import (
     COMPACT_SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT,
     rewrite_query, build_user_message, call_llm_stream,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _record_learning(query: str, topic: str = "") -> None:
+    """记录学习行为（仅登录用户），失败不影响主流程。"""
+    if st.session_state.get("auth_mode_type") == "guest":
+        return
+    try:
+        manager = st.session_state.get("auth_data_manager")
+        username = st.session_state.get("auth_username", "")
+        if manager and username:
+            manager.add_learning_record(
+                username=username,
+                topic=topic or query[:50],
+                query=query,
+                source_type="qa",
+            )
+    except Exception as exc:
+        logger.warning("记录学习行为失败: %s", exc)
 
 
 def render(
@@ -197,6 +219,9 @@ def _process_query(
             })
             if use_context:
                 st.session_state.conversation_turns.append((query, ans))
+
+            # 记录学习行为
+            _record_learning(query)
 
         else:
             st.warning("未找到相关内容，请换个关键词试试。")

@@ -6,6 +6,8 @@
 - 输入框固定在页面底部
 """
 
+import logging
+
 import streamlit as st
 
 from config import MODELS, get_model_api_config
@@ -17,6 +19,26 @@ try:
     from tools import set_selected_books
 except ImportError:
     set_selected_books = lambda x: None
+
+logger = logging.getLogger(__name__)
+
+
+def _record_learning(query: str, topic: str = "") -> None:
+    """记录学习行为（仅登录用户），失败不影响主流程。"""
+    if st.session_state.get("auth_mode_type") == "guest":
+        return
+    try:
+        manager = st.session_state.get("auth_data_manager")
+        username = st.session_state.get("auth_username", "")
+        if manager and username:
+            manager.add_learning_record(
+                username=username,
+                topic=topic or query[:50],
+                query=query,
+                source_type="agent",
+            )
+    except Exception as exc:
+        logger.warning("记录学习行为失败: %s", exc)
 
 
 def render(
@@ -110,84 +132,97 @@ def _process_agent_query(
     with st.chat_message("user", avatar="👤"):
         st.markdown(query)
 
-    # AI 回答气泡
+    # AI 回答气泡 —— 所有内容在本次渲染中直接写入：
+    # - 状态条固定折叠，仅通过 label 原地更新进度（容器高度不变）
+    # - 最终回答通过单一占位符原地刷新
+    # - 思考过程面板在状态完成后一次性渲染
+    # - 结束后不再 st.rerun()，避免整页重绘抖动
     with st.chat_message("assistant", avatar="🤖"):
-        with st.status("🤖 智能体思考中...", expanded=True) as status:
-            st.write("🧠 正在分析问题并选择工具...")
+        status = st.status("🤖 智能体思考中...", expanded=False)
+        # 思考过程面板的占位（位于状态条与最终回答之间，稍后一次性填充）
+        expander_slot = st.empty()
+        # 最终回答的单一占位符
+        answer_slot = st.empty()
 
-            if run_agent_stream is not None:
-                # ── 流式输出模式 ──
-                steps = []
-                final_answer = ""
-                has_error = False
+        if run_agent_stream is not None:
+            # ── 流式输出模式 ──
+            steps = []
+            final_answer = ""
+            has_error = False
 
+            try:
                 for event in run_agent_stream(
                     query, api_key, model=model_id, api_url=api_url,
                     conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns]
                 ):
                     if event["type"] == "step":
                         steps.append(event["data"])
-                        st.write(f"🔧 使用工具: `{event['data']['tool']}`")
+                        status.update(label=f"🔧 步骤 {len(steps)}：使用工具 `{event['data']['tool']}`")
                     elif event["type"] == "token":
                         final_answer += event["data"]
+                        answer_slot.markdown(fix_latex_formulas(final_answer) + " ▌")
                     elif event["type"] == "error":
                         status.update(label="❌ 出错了", state="error", expanded=False)
-                        st.error(f"智能体执行出错：{event['data']}")
+                        answer_slot.error(f"智能体执行出错：{event['data']}")
                         has_error = True
                         break
+            except Exception as exc:
+                status.update(label="❌ 出错了", state="error", expanded=False)
+                answer_slot.error(f"智能体执行出错：{exc}")
+                has_error = True
 
-                if not has_error:
-                    status.update(label="✅ 智能体完成", state="complete", expanded=False)
+            if not has_error:
+                status.update(label="✅ 智能体完成", state="complete", expanded=False)
+                if final_answer:
+                    answer_slot.markdown(fix_latex_formulas(final_answer))
 
-                    # 思考过程折叠面板（嵌入气泡内部）
-                    if steps:
-                        with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
-                            for i, step in enumerate(steps):
-                                st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
-                                st.markdown(f"输入: `{step['input']}`")
-                                st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
-
-                    if final_answer:
-                        st.markdown(fix_latex_formulas(final_answer))
-
-                    st.session_state.agent_turns.append((query, final_answer, steps))
-                    st.session_state.hist.append({
-                        "q": f"[智能体] {query}",
-                        "hits": [],
-                        "a": final_answer,
-                        "model": MODELS[selected_model]["name"],
-                        "mode": "智能体"
-                    })
-            else:
-                # ── 降级到非流式模式 ──
-                result = run_agent(
-                    query, api_key, model=model_id, api_url=api_url,
-                    conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns],
-                )
-
-                if result["error"]:
-                    status.update(label="❌ 出错了", state="error", expanded=False)
-                    st.error(f"智能体执行出错：{result['error']}")
-                else:
-                    status.update(label="✅ 智能体完成", state="complete", expanded=False)
-
-                    # 思考过程折叠面板（嵌入气泡内部）
-                    if result["steps"]:
-                        with st.expander(f"🔍 查看思考过程（{len(result['steps'])} 步）", expanded=False):
-                            for i, step in enumerate(result["steps"]):
-                                st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
-                                st.markdown(f"输入: `{step['input']}`")
-                                st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")
-
-                    st.markdown(fix_latex_formulas(result["output"]))
-
-                st.session_state.agent_turns.append((query, result.get("output", ""), result.get("steps", [])))
+                st.session_state.agent_turns.append((query, final_answer, steps))
                 st.session_state.hist.append({
                     "q": f"[智能体] {query}",
                     "hits": [],
-                    "a": result.get("output", ""),
+                    "a": final_answer,
                     "model": MODELS[selected_model]["name"],
                     "mode": "智能体"
                 })
 
-    st.rerun()
+                # 记录学习行为（每轮对话完成时记录一次）
+                if final_answer:
+                    _record_learning(query, topic="智能体对话")
+        else:
+            # ── 降级到非流式模式 ──
+            result = run_agent(
+                query, api_key, model=model_id, api_url=api_url,
+                conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns],
+            )
+
+            if result["error"]:
+                status.update(label="❌ 出错了", state="error", expanded=False)
+                answer_slot.error(f"智能体执行出错：{result['error']}")
+            else:
+                status.update(label="✅ 智能体完成", state="complete", expanded=False)
+                if result["output"]:
+                    answer_slot.markdown(fix_latex_formulas(result["output"]))
+
+            steps = result.get("steps", [])
+            has_error = bool(result["error"])
+            st.session_state.agent_turns.append((query, result.get("output", ""), steps))
+            st.session_state.hist.append({
+                "q": f"[智能体] {query}",
+                "hits": [],
+                "a": result.get("output", ""),
+                "model": MODELS[selected_model]["name"],
+                "mode": "智能体"
+            })
+
+            # 记录学习行为（每轮对话完成时记录一次）
+            if not has_error and result.get("output"):
+                _record_learning(query, topic="智能体对话")
+
+        # 思考过程折叠面板：状态完成后一次性渲染（嵌入气泡内部）
+        if steps and not has_error:
+            with expander_slot.container():
+                with st.expander(f"🔍 查看思考过程（{len(steps)} 步）", expanded=False):
+                    for i, step in enumerate(steps):
+                        st.markdown(f"**步骤 {i+1}:** `{step['tool']}`")
+                        st.markdown(f"输入: `{step['input']}`")
+                        st.markdown(f"输出:\n```\n{step['output'][:300]}\n```")

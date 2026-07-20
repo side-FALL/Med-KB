@@ -27,7 +27,7 @@ from ui_components import (
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
     render_auth_page, is_authenticated, get_auth_username,
-    get_auth_mode, logout, set_auth_success,
+    get_auth_mode, logout, set_auth_success, is_admin, get_data_manager,
 )
 
 # ── 页面配置 ────────────────────────────────────────────
@@ -46,6 +46,8 @@ _defaults = {
     # 认证状态默认值
     "authenticated": False, "auth_username": "游客",
     "auth_mode_type": "guest", "auth_mode": "home",
+    # 主界面视图：main（主界面）/ admin（管理面板）
+    "view": "main",
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -91,6 +93,16 @@ with st.sidebar:
 
     if auth_mode != "guest":
         # 已注册用户
+        # 管理员徽章（仅 admin 角色显示）
+        admin_badge = ""
+        status_text = "已登录 · 数据已同步"
+        if is_admin():
+            admin_badge = (
+                ' <span style="font-size:0.68rem; background:#0D6EFD; color:#FFFFFF; '
+                'padding:2px 8px; border-radius:8px; font-weight:600;">管理员</span>'
+            )
+            status_text = "已登录 · 管理员"
+
         st.markdown(f"""
         <div style="background:linear-gradient(135deg, rgba(13,110,253,0.08) 0%, rgba(10,88,202,0.04) 100%);
                     border-radius:12px; padding:0.8rem 1rem; margin-bottom:0.8rem;
@@ -98,9 +110,10 @@ with st.sidebar:
             <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
                 <span style="font-size:1.3rem;">👤</span>
                 <span style="font-weight:700; color:#0A58CA; font-size:0.95rem;">{username}</span>
+                {admin_badge}
             </div>
             <div style="font-size:0.78rem; color:#6C757D;">
-                已登录 · 数据已同步
+                {status_text}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -114,6 +127,12 @@ with st.sidebar:
         with col_prefs:
             if st.button("⚙️ 设置", use_container_width=True, key="sidebar_prefs"):
                 st.info("个人设置功能开发中...")
+
+        # 管理员入口（仅 admin 角色可见，普通用户和游客完全看不到）
+        if is_admin():
+            if st.button("🔧 管理面板", use_container_width=True, key="sidebar_admin"):
+                st.session_state["view"] = "admin"
+                st.rerun()
     else:
         # 游客模式
         st.markdown(f"""
@@ -137,6 +156,17 @@ with st.sidebar:
 
 # 渲染主侧边栏（检索设置、对话设置、搜索历史等）
 top_k, alpha, use_context = render_sidebar(book_count, total_chunks)
+
+# ── 管理面板视图切换 ──────────────────────────────────
+# 安全守卫：非 admin 用户不应停留在管理面板视图
+if st.session_state.get("view") == "admin" and not is_admin():
+    st.session_state["view"] = "main"
+
+if st.session_state.get("view") == "admin" and is_admin():
+    from admin_panel import render_admin_panel
+    manager = get_data_manager()
+    render_admin_panel(manager)
+    st.stop()
 
 # ── 主界面标题 ──────────────────────────────────────────
 st.markdown(f"""

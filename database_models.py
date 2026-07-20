@@ -68,7 +68,7 @@ ISO_DATETIME_PATTERN = re.compile(
 )
 """ISO 8601 日期时间格式校验。"""
 
-VALID_SOURCE_TYPES = ("textbook", "search", "chat")
+VALID_SOURCE_TYPES = ("textbook", "search", "chat", "qa", "quiz", "compare", "case", "agent")
 """学习记录来源类型白名单。"""
 
 VALID_ACTIONS = ("login", "logout", "register", "search", "query", "update_prefs")

@@ -914,6 +914,7 @@ def logout():
         "login_error", "login_success",
         "user_data",
         "model_authed",  # 仅清除 session 缓存，持久化状态保留在 JSONBin 中
+        "view",  # 重置主界面视图，防止退出后仍停留在管理面板
     ]:
         st.session_state.pop(key, None)
 
@@ -931,6 +932,47 @@ def show_auth_success(message: str):
 def show_auth_warning(message: str):
     """显示认证警告信息。"""
     st.warning(f"⚠️ {message}")
+
+
+def is_admin() -> bool:
+    """检查当前用户是否为管理员。
+
+    仅当用户已通过登录认证（非游客模式）且角色为 admin 时返回 True。
+    游客模式和未认证用户始终返回 False。
+
+    角色判断基于 ``user_data.get("profile", {}).get("role") == "admin"``，
+    与数据库模型 UserProfile.role 字段一致。
+    """
+    if not is_authenticated():
+        return False
+    if get_auth_mode() == "guest":
+        return False
+    user_data = st.session_state.get("user_data")
+    if not user_data:
+        return False
+    return user_data.get("profile", {}).get("role") == "admin"
+
+
+def get_user_data() -> dict | None:
+    """获取当前登录用户的完整数据。
+
+    Returns:
+        用户数据字典；游客模式或未认证时返回 None
+    """
+    if not is_authenticated():
+        return None
+    if get_auth_mode() == "guest":
+        return None
+    return st.session_state.get("user_data")
+
+
+def get_data_manager() -> "UserDataManager":
+    """获取 UserDataManager 单例（与登录/注册流程共享同一实例）。
+
+    Returns:
+        UserDataManager 实例
+    """
+    return _get_or_create_manager()
 
 
 def reset_auth_mode():

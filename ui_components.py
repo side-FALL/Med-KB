@@ -5,12 +5,24 @@
 
 import re
 import json
+import html
 
 import numpy as np
 import streamlit as st
 from pathlib import Path
 
 from config import MODELS, is_model_free, check_model_password
+
+
+def _escape_html(text: str) -> str:
+    """转义 HTML 特殊字符，防止 XSS 攻击。
+
+    用于将用户可控内容（查询、用户名等）安全地嵌入 unsafe_allow_html=True 的
+    st.markdown 输出中。& < > " ' 均按 HTML 实体转义。
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    return html.escape(text, quote=True)
 
 
 # ── LaTeX 公式修复 ──────────────────────────────────────
@@ -137,10 +149,11 @@ def render_sidebar(book_count: int, total_chunks: int):
             history_html = '<div style="max-height:250px; overflow-y:auto;">'
             for i, item in enumerate(reversed(st.session_state.hist[-10:])):
                 mode_icon = {"问答":"💬","刷题":"📝","对比":"🔄","病例":"🏥","智能体":"🤖"}.get(item.get("mode","问答"),"💬")
+                safe_q = _escape_html(item.get('q', '')[:30])
                 history_html += f'''
                 <div class="sidebar-history-item">
                     <span>{mode_icon}</span>
-                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{item['q'][:30]}</span>
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{safe_q}</span>
                 </div>'''
             history_html += '</div>'
             st.markdown(history_html, unsafe_allow_html=True)
@@ -215,7 +228,7 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
         with st.expander("📖 选择要检索的教材", expanded=True):
             # 初始化 session_state（在渲染 widget 之前）
             if "selected_books" not in st.session_state:
-                st.session_state.selected_books = ALL_BOOKS
+                st.session_state.selected_books = []
 
             c1, c2 = st.columns([4, 1])
             with c2:
@@ -296,13 +309,15 @@ def render_empty_state(title: str, subtitle: str, examples: list[str] = None):
 
 def render_user_bubble(text: str):
     """渲染用户消息气泡。"""
-    st.markdown(f'<div class="user-bubble fade-in-up">{text}</div>', unsafe_allow_html=True)
+    safe_text = _escape_html(text)
+    st.markdown(f'<div class="user-bubble fade-in-up">{safe_text}</div>', unsafe_allow_html=True)
 
 
 def render_ai_bubble(label: str = ""):
     """渲染 AI 消息气泡头部。"""
     if label:
-        st.markdown(f'<div class="ai-bubble fade-in-up"><strong>💡 {label}</strong></div>', unsafe_allow_html=True)
+        safe_label = _escape_html(label)
+        st.markdown(f'<div class="ai-bubble fade-in-up"><strong>💡 {safe_label}</strong></div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="ai-bubble fade-in-up"></div>', unsafe_allow_html=True)
 
@@ -337,18 +352,18 @@ def render_source_cards(hits: list[dict]):
                 score_label = "低相关"
 
             chapter = h.get("chapter", "")
-            chapter_html = f'<div class="source-chapter">{chapter[:25]}</div>' if chapter else ""
+            chapter_html = f'<div class="source-chapter">{_escape_html(chapter[:25])}</div>' if chapter else ""
 
             st.markdown(
                 f'<div class="source-card fade-in-up">'
                 f'<div class="source-header">'
                 f'<div>'
-                f'<div class="source-book">{h["book"][:20]}</div>'
+                f'<div class="source-book">{_escape_html(h["book"][:20])}</div>'
                 f'{chapter_html}'
                 f'</div>'
                 f'<span class="source-score" style="background:{score_bg}; color:{score_color};">{score_label} {score:.0%}</span>'
                 f'</div>'
-                f'<div class="source-text">{h["text"][:150]}…</div>'
+                f'<div class="source-text">{_escape_html(h["text"][:150])}…</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -381,20 +396,20 @@ def render_source_cards_inline(hits: list[dict]):
 
             chapter = h.get("chapter", "")
             chapter_html = (
-                f'<div class="source-chapter">{chapter[:30]}</div>' if chapter else ""
+                f'<div class="source-chapter">{_escape_html(chapter[:30])}</div>' if chapter else ""
             )
 
             st.markdown(
                 f'<div class="source-card-inline">'
                 f'  <div class="source-header">'
                 f'    <div>'
-                f'      <div class="source-book">{h["book"][:25]}</div>'
+                f'      <div class="source-book">{_escape_html(h["book"][:25])}</div>'
                 f'      {chapter_html}'
                 f'    </div>'
                 f'    <span class="source-score" style="background:{score_bg}; color:{score_color};">'
                 f'      {score_label} {score:.0%}</span>'
                 f'  </div>'
-                f'  <div class="source-text">{h["text"][:200]}…</div>'
+                f'  <div class="source-text">{_escape_html(h["text"][:200])}…</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )

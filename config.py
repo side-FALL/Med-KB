@@ -92,12 +92,27 @@ MODEL_PROVIDERS = {
         "embed_url": "https://ark.cn-beijing.volces.com/api/v3",
         "api_key_env": "ARK_API_KEY",
     },
+    "siliconflow": {
+        "base_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "embed_url": "https://api.siliconflow.cn/v1",
+        "api_key_env": "SILICONFLOW_API_KEY",
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1/chat/completions",
+        "embed_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+    },
 }
 
 
 # ── 模型配置 ────────────────────────────────────────────
 
 MODELS = {
+    "openrouter/tencent-hy3-free": {
+        "name": "Hy3 免费版",
+        "provider": "openrouter",
+        "model_id": "tencent/hy3:free",
+    },
     "cherryin/deepseek-v4-flash": {
         "name": "DeepSeek V4 Flash",
         "provider": "cherryin",
@@ -119,6 +134,7 @@ MODELS = {
 # ── 降级顺序 ────────────────────────────────────────────
 
 FALLBACK_ORDER = [
+    "openrouter/tencent-hy3-free",
     "cherryin/deepseek-v4-flash",
     "mimo/mimo-v2.5",
     "ark/deepseek-v4-flash",
@@ -150,7 +166,8 @@ def get_model_api_config(model_key: str) -> tuple[str, str, str]:
 def is_model_free(model_key: str) -> bool:
     """判断模型是否为免费模型。"""
     model = MODELS[model_key]
-    return "(free)" in model.get("model_id", "")
+    model_id = model.get("model_id", "")
+    return "(free)" in model_id or ":free" in model_id
 
 
 # ── 密码验证 ────────────────────────────────────────────

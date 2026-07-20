@@ -817,6 +817,39 @@ class UserDataManager:
 
         return result
 
+    def get_system_stats(self) -> dict:
+        """获取系统级统计数据（供管理面板使用）。
+
+        Returns:
+            统计数据字典，包含:
+            - total_users: 总用户数
+            - total_queries: 总查询次数（所有用户查询次数之和）
+            - admin_count: 管理员数量
+            - user_count: 普通用户数量
+        """
+        root = self._ensure_initialized()
+        users = root.get("users", {})
+
+        total_queries = 0
+        admin_count = 0
+        user_count = 0
+
+        for username, user_data in users.items():
+            stats = user_data.get("stats", {})
+            total_queries += stats.get("total_queries", 0)
+            role = user_data.get("profile", {}).get("role", "user")
+            if role == "admin":
+                admin_count += 1
+            elif role == "user":
+                user_count += 1
+
+        return {
+            "total_users": len(users),
+            "total_queries": total_queries,
+            "admin_count": admin_count,
+            "user_count": user_count,
+        }
+
     def batch_update_active(self, usernames: list[str]) -> dict:
         """批量更新用户活跃时间。
 

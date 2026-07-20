@@ -3,6 +3,8 @@
 性能优化：教材数据按需加载，流式显示病例分析结果。
 """
 
+import logging
+
 import streamlit as st
 
 from config import MODELS, get_model_api_config
@@ -12,6 +14,26 @@ from ui_components import (
     render_user_bubble, render_ai_bubble, render_empty_state,
 )
 from llm_utils import CASE_SYSTEM_PROMPT, build_case_message, call_llm_stream
+
+logger = logging.getLogger(__name__)
+
+
+def _record_learning(query: str, topic: str = "") -> None:
+    """记录学习行为（仅登录用户），失败不影响主流程。"""
+    if st.session_state.get("auth_mode_type") == "guest":
+        return
+    try:
+        manager = st.session_state.get("auth_data_manager")
+        username = st.session_state.get("auth_username", "")
+        if manager and username:
+            manager.add_learning_record(
+                username=username,
+                topic=topic or query[:50],
+                query=query,
+                source_type="case",
+            )
+    except Exception as exc:
+        logger.warning("记录学习行为失败: %s", exc)
 
 
 def render(
@@ -61,6 +83,9 @@ def render(
                 case_placeholder.markdown(fix_latex_formulas(case_ans))
 
             st.session_state.hist.append({"q": f"[病例] {case_desc.strip()[:50]}…", "hits": hits, "a": case_ans, "model": MODELS[selected_model]["name"], "mode": "病例"})
+
+            # 记录学习行为
+            _record_learning(case_desc.strip(), topic="病例分析")
         else:
             st.warning("未找到相关教材内容，请补充更多病例信息。")
 
