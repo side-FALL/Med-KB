@@ -140,6 +140,7 @@ def _process_agent_query(
     with st.chat_message("assistant", avatar="🤖"):
         status = st.status("🤖 智能体思考中...", expanded=False)
         # 思考过程面板的占位（位于状态条与最终回答之间，稍后一次性填充）
+        # 占位符在整个生命周期中始终存在，避免完成后插入新元素导致布局跳动
         expander_slot = st.empty()
         # 最终回答的单一占位符
         answer_slot = st.empty()
@@ -149,6 +150,11 @@ def _process_agent_query(
             steps = []
             final_answer = ""
             has_error = False
+            # 流式批量化缓冲：累积到一定字符数或遇到句读/换行时才刷新占位符，
+            # 减少 answer_slot.markdown() 的调用频率以降低重渲染抖动
+            pending_tokens = ""
+            TOKEN_BATCH_SIZE = 20
+            TOKEN_FLUSH_CHARS = ("。", "！", "？", "\n")
 
             try:
                 for event in run_agent_stream(
@@ -156,11 +162,17 @@ def _process_agent_query(
                     conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns]
                 ):
                     if event["type"] == "step":
+                        # 推理步骤仅记录，不更新状态条标签
+                        # （状态条仅在 开始 → 思考中 → 完成/出错 三个关键节点更新）
                         steps.append(event["data"])
-                        status.update(label=f"🔧 步骤 {len(steps)}：使用工具 `{event['data']['tool']}`")
                     elif event["type"] == "token":
                         final_answer += event["data"]
-                        answer_slot.markdown(fix_latex_formulas(final_answer) + " ▌")
+                        pending_tokens += event["data"]
+                        if len(pending_tokens) >= TOKEN_BATCH_SIZE or any(
+                            ch in pending_tokens for ch in TOKEN_FLUSH_CHARS
+                        ):
+                            answer_slot.markdown(fix_latex_formulas(final_answer) + " ▌")
+                            pending_tokens = ""
                     elif event["type"] == "error":
                         status.update(label="❌ 出错了", state="error", expanded=False)
                         answer_slot.error(f"智能体执行出错：{event['data']}")

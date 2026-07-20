@@ -216,6 +216,18 @@ div[data-testid="stChatMessage"] {
     margin-bottom: 1rem !important;
 }
 
+/* ── 布局稳定性：防止流式输出时界面抖动 ────────────────── */
+
+/* AI 回答气泡最小高度约束，避免内容从无到有/高度突变引起页面跳动 */
+div[data-testid="stChatMessage"]:has(div[data-testid="stChatMessageAvatarAssistant"]) > div:last-child {
+    min-height: 3.5rem;
+}
+
+/* 状态条容器固定高度行为：折叠态标签原地更新，不改变容器尺寸 */
+div[data-testid="stChatMessage"] [data-testid="stExpander"] {
+    scroll-margin-bottom: 0;
+}
+
 /* ── 内联参考来源卡片（嵌入 AI 气泡内）────────────────── */
 .source-card-inline {
     background: #F8FAFC;
