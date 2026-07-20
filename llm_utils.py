@@ -221,6 +221,7 @@ def rewrite_query(query: str, prev_queries: list[str], api_key: str = "", api_ur
                     ],
                     "temperature": 0.0,
                     "max_tokens": 100,
+                    "reasoning": {"max_tokens": 128},
                 },
                 timeout=15,
             )
@@ -289,6 +290,7 @@ def call_llm(
                     ],
                     "temperature": temperature,
                     "max_tokens": max_tokens,
+                    "reasoning": {"max_tokens": 128},
                 },
                 timeout=timeout,
             )
@@ -341,6 +343,7 @@ def call_llm_stream(
                     ],
                     "temperature": temperature,
                     "max_tokens": max_tokens,
+                    "reasoning": {"max_tokens": 128},
                     "stream": True,
                 },
                 timeout=timeout,
