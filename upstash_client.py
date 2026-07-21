@@ -33,8 +33,8 @@ class UpstashClient:
         url: Optional[str] = None,
         token: Optional[str] = None,
     ):
-        self._url = (url or os.environ.get("UPSTASH_REDIS_REST_URL", "")).rstrip("/")
-        self._token = token or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+        self._url = (url or os.environ.get("UPSTASH_REDIS_REST_URL", "")).strip('"').rstrip("/")
+        self._token = token or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip('"')
         self._available = bool(self._url and self._token)
         self._last_read_from_fallback = False
         try:
