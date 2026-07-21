@@ -18,12 +18,12 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from jsonbin_client import (
-    JSONBinClient,
-    JSONBinError,
-    JSONBinRequestError,
-    JSONBinTimeoutError,
-    JSONBinAuthError,
+from upstash_client import (
+    UpstashClient as JSONBinClient,
+    UpstashError as JSONBinError,
+    UpstashRequestError as JSONBinRequestError,
+    UpstashTimeoutError as JSONBinTimeoutError,
+    UpstashAuthError as JSONBinAuthError,
 )
 from database_models import (
     UserData,
