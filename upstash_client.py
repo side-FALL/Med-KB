@@ -2,9 +2,6 @@
 
 import json
 import os
-import platform
-import time
-from pathlib import Path
 from typing import Any, Optional
 
 import requests
@@ -26,22 +23,8 @@ class UpstashRequestError(UpstashError):
     """General request error."""
 
 
-def _cache_dir() -> Path:
-    if platform.system() == "Windows":
-        base = os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
-    else:
-        base = Path.home() / ".cache"
-    d = Path(base) / "med_kb" / "upstash"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _cache_path() -> Path:
-    return _cache_dir() / "data.json"
-
-
 class UpstashClient:
-    """Upstash Redis REST API client with local-cache fallback."""
+    """Upstash Redis REST API client with JSONBin fallback."""
 
     TIMEOUT = 10
 
@@ -56,6 +39,17 @@ class UpstashClient:
             raise UpstashAuthError(
                 "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set"
             )
+
+        self._last_read_from_fallback = False
+        try:
+            from jsonbin_client import JSONBinClient
+            self._jsonbin = JSONBinClient()
+        except Exception:
+            self._jsonbin = None
+
+    @property
+    def is_degraded(self) -> bool:
+        return self._last_read_from_fallback
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._token}"}
@@ -113,76 +107,49 @@ class UpstashClient:
                 f"HTTP {resp.status_code}: {resp.text}"
             )
 
-    # ── local cache helpers ──
-
-    def _read_cache(self) -> Optional[dict]:
-        p = _cache_path()
-        if not p.exists():
-            return None
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-
-    def _write_cache(self, data: dict) -> None:
-        try:
-            _cache_path().write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        except Exception:
-            pass
-
     # ── public API ──
 
     def get_record(self) -> dict:
-        """Read meta key + all user:* keys and assemble the full record."""
+        """Read full record with Upstash → JSONBin fallback."""
+        self._last_read_from_fallback = False
         try:
-            # meta holds everything except per-user data
             meta_raw = self._get("meta")
             meta = json.loads(meta_raw) if isinstance(meta_raw, str) else (meta_raw or {})
-
-            # per-user keys
             user_keys = self._keys("user:*")
             users: dict = {}
             for key in user_keys:
                 val = self._get(key)
                 uid = key.split("user:", 1)[1] if "user:" in key else key
                 users[uid] = json.loads(val) if isinstance(val, str) else val
-
-            record = {
-                "users": users,
-                "logs": meta.get("logs", {}),
-                "config": meta.get("config", {}),
-            }
-            self._write_cache(record)
-            return record
-
+            return {"users": users, "logs": meta.get("logs", {}), "config": meta.get("config", {})}
         except UpstashError:
-            cached = self._read_cache()
-            if cached is not None:
-                return cached
-            raise
+            pass
+
+        if self._jsonbin:
+            try:
+                record = self._jsonbin.get_record()
+                self._last_read_from_fallback = True
+                return record
+            except Exception:
+                pass
+
+        raise UpstashRequestError("所有存储后端均不可用，请稍后重试")
 
     def update_record(self, data: dict) -> None:
-        """Write the record: users become user:* keys, rest goes into meta."""
+        """Write the record with Upstash primary, JSONBin backup on failure."""
         try:
             users = data.get("users", {})
             meta = {k: v for k, v in data.items() if k != "users"}
-
-            # wipe old user keys first
             old_keys = self._keys("user:*")
             for k in old_keys:
                 self._del(k)
-
-            # write per-user data
             for uid, info in users.items():
                 self._set(f"user:{uid}", info)
-
-            # write meta
             self._set("meta", meta)
-
-            self._write_cache(data)
-
         except UpstashError:
-            self._write_cache(data)
+            if self._jsonbin:
+                try:
+                    self._jsonbin.update_record(data)
+                except Exception:
+                    pass
             raise
