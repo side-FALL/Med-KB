@@ -108,10 +108,10 @@ MODEL_PROVIDERS = {
 # ── 模型配置 ────────────────────────────────────────────
 
 MODELS = {
-    "openrouter/tencent-hy3-free": {
-        "name": "Hy3 免费版",
+    "openrouter/gemma-4-26b-free": {
+        "name": "Gemma 4 26B 免费版",
         "provider": "openrouter",
-        "model_id": "tencent/hy3:free",
+        "model_id": "google/gemma-4-26b-a4b-it:free",
     },
     "cherryin/deepseek-v4-flash": {
         "name": "DeepSeek V4 Flash",
@@ -134,7 +134,7 @@ MODELS = {
 # ── 降级顺序 ────────────────────────────────────────────
 
 FALLBACK_ORDER = [
-    "openrouter/tencent-hy3-free",
+    "openrouter/gemma-4-26b-free",
     "cherryin/deepseek-v4-flash",
     "mimo/mimo-v2.5",
     "ark/deepseek-v4-flash",
