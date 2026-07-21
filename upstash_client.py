@@ -35,11 +35,7 @@ class UpstashClient:
     ):
         self._url = (url or os.environ.get("UPSTASH_REDIS_REST_URL", "")).rstrip("/")
         self._token = token or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
-        if not self._url or not self._token:
-            raise UpstashAuthError(
-                "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set"
-            )
-
+        self._available = bool(self._url and self._token)
         self._last_read_from_fallback = False
         try:
             from jsonbin_client import JSONBinClient
@@ -112,18 +108,20 @@ class UpstashClient:
     def get_record(self) -> dict:
         """Read full record with Upstash → JSONBin fallback."""
         self._last_read_from_fallback = False
-        try:
-            meta_raw = self._get("meta")
-            meta = json.loads(meta_raw) if isinstance(meta_raw, str) else (meta_raw or {})
-            user_keys = self._keys("user:*")
-            users: dict = {}
-            for key in user_keys:
-                val = self._get(key)
-                uid = key.split("user:", 1)[1] if "user:" in key else key
-                users[uid] = json.loads(val) if isinstance(val, str) else val
-            return {"users": users, "logs": meta.get("logs", {}), "config": meta.get("config", {})}
-        except UpstashError:
-            pass
+
+        if self._available:
+            try:
+                meta_raw = self._get("meta")
+                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else (meta_raw or {})
+                user_keys = self._keys("user:*")
+                users: dict = {}
+                for key in user_keys:
+                    val = self._get(key)
+                    uid = key.split("user:", 1)[1] if "user:" in key else key
+                    users[uid] = json.loads(val) if isinstance(val, str) else val
+                return {"users": users, "logs": meta.get("logs", {}), "config": meta.get("config", {})}
+            except UpstashError:
+                pass
 
         if self._jsonbin:
             try:
@@ -137,19 +135,25 @@ class UpstashClient:
 
     def update_record(self, data: dict) -> None:
         """Write the record with Upstash primary, JSONBin backup on failure."""
-        try:
-            users = data.get("users", {})
-            meta = {k: v for k, v in data.items() if k != "users"}
-            old_keys = self._keys("user:*")
-            for k in old_keys:
-                self._del(k)
-            for uid, info in users.items():
-                self._set(f"user:{uid}", info)
-            self._set("meta", meta)
-        except UpstashError:
-            if self._jsonbin:
-                try:
-                    self._jsonbin.update_record(data)
-                except Exception:
-                    pass
-            raise
+        if self._available:
+            try:
+                users = data.get("users", {})
+                meta = {k: v for k, v in data.items() if k != "users"}
+                old_keys = self._keys("user:*")
+                for k in old_keys:
+                    self._del(k)
+                for uid, info in users.items():
+                    self._set(f"user:{uid}", info)
+                self._set("meta", meta)
+                return
+            except UpstashError:
+                pass
+
+        if self._jsonbin:
+            try:
+                self._jsonbin.update_record(data)
+                return
+            except Exception:
+                pass
+
+        raise UpstashRequestError("所有存储后端均不可用")
