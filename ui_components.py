@@ -208,7 +208,7 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
     """
     col_scope, col_model = st.columns([3, 1])
     with col_scope:
-        scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed")
+        scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed", key="scope_selector")
 
     # 切换到"选择教材"时重置选择，确保初始状态为空
     if st.session_state.get("_prev_scope") != scope:
@@ -217,7 +217,7 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
         st.session_state._prev_scope = scope
     with col_model:
         selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
-            format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed")
+            format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed", key="model_selector")
 
     # 模型信息提示
     _current_model = MODELS[selected_model]

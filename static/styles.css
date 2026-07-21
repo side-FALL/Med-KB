@@ -588,13 +588,23 @@ div[data-testid="stChatInput"] button {
 .stSelectbox > div > div {
     border-radius: 12px;
     border: 2px solid #DEE2E6;
+    min-height: 2.5rem;
+}
+
+/* 教材范围 + 模型选择区域：固定容器最小高度，防止下拉操作引起布局抖动 */
+div[data-testid="stHorizontalBlock"]:has(.stSelectbox) {
+    min-height: 2.8rem;
 }
 
 .stMultiSelect > div[data-baseweb="select"] {
     border-radius: 12px;
     border: 2px solid #DEE2E6;
-    max-height: 80px !important;
-    overflow-y: auto !important;
+    min-height: 2.5rem;
+}
+
+/* multiselect 下拉菜单打开时防止页面抖动：固定容器高度 + 平滑过渡 */
+.stMultiSelect {
+    contain: layout size;
 }
 
 /* ── 分割线 ──────────────────────────────────────────── */
