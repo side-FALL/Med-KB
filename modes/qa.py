@@ -145,6 +145,7 @@ def _process_query(
             if embeddings is None:
                 st.error("未加载到教材数据")
                 st.stop()
+            st.write(f"已加载 {len(books_to_load)} 本教材，共 {len(documents)} 个文本块")
             status.update(
                 label=f"✅ 已加载 {len(books_to_load)} 本教材",
                 state="complete", expanded=False,
@@ -180,11 +181,15 @@ def _process_query(
                 k=top_k, alpha=alpha,
             )
             if hits:
+                st.write(f"找到 {len(hits)} 条相关内容：")
+                for i, hit in enumerate(hits[:5], 1):
+                    st.write(f"{i}. {hit['book']} — {hit['text'][:80]}...")
                 status.update(
                     label=f"✅ 找到 {len(hits)} 条相关内容",
                     state="complete", expanded=False,
                 )
             else:
+                st.write("未找到与查询相关的内容")
                 status.update(
                     label="⚠️ 未找到相关内容",
                     state="complete", expanded=False,

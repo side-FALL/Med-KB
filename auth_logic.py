@@ -294,9 +294,9 @@ def login_user(
             except Exception as mig_exc:
                 logger.error("用户 %s 密码迁移失败: %s", username, mig_exc, exc_info=True)
 
-        # 3. 密码正确，清除限流记录，加载用户数据（更新活跃时间和登录统计）
+        # 3. 密码正确，清除限流记录，复用已获取的数据更新登录统计
         _login_rate_limiter.record_success(username)
-        user_data_full = user_data_manager.get_user(username)
+        user_data_full = user_data_manager.record_login_success(username, user_data)
 
         logger.info("用户登录成功: %s", username)
         return user_data_full, None

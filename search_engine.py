@@ -110,7 +110,7 @@ def search(
         hits.append({
             "text": documents[local_idx][:500],
             "book": metadatas[local_idx].get("book", "?"),
-            "chapter": metadatas[local_idx].get("chapter", "?"),
+            "chapter": metadatas[local_idx].get("section", ""),
             "similarity": round(s, 4),
             "vector_sim": round(float(vec_scores[local_idx]), 4),
             "bm25_score": round(float(bm25_scores[local_idx]), 4),

@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -152,11 +153,17 @@ class UserDataManager:
         self._current_user = current_user
         # 线程锁，防止并发操作导致数据覆盖
         self._lock = threading.Lock()
+        # 短时根数据缓存，避免同一流程内重复网络读取（如登录流程的 safe_get_user + record_login_success）
+        self._root_cache: Optional[dict] = None
+        self._root_cache_time: float = 0
 
     # ── 内部工具方法 ──────────────────────────────────────
 
     def _ensure_initialized(self) -> dict:
         """确保根数据结构已初始化，返回当前根数据。
+
+        使用短时缓存（3秒）避免同一流程内重复网络读取。
+        缓存在 _save_root 后自动失效，确保后续操作读取最新数据。
 
         Returns:
             根数据字典
@@ -164,10 +171,16 @@ class UserDataManager:
         Raises:
             DataOperationError: 读取/初始化失败
         """
+        # 短时缓存命中：避免同一流程内的重复网络请求
+        if self._root_cache is not None and (time.time() - self._root_cache_time) < 3:
+            return self._root_cache
+
         try:
             record = self._client.get_record()
             if isinstance(record, dict) and "users" in record:
                 self._initialized = True
+                self._root_cache = record
+                self._root_cache_time = time.time()
                 return record
         except JSONBinError as exc:
             logger.warning("读取根数据失败，尝试初始化: %s", exc)
@@ -178,6 +191,8 @@ class UserDataManager:
                 root = create_default_root()
                 self._client.update_record(root)
                 self._initialized = True
+                self._root_cache = root
+                self._root_cache_time = time.time()
                 logger.info("根数据结构已初始化")
                 return root
             except JSONBinError as exc:
@@ -191,6 +206,8 @@ class UserDataManager:
     def _save_root(self, root: dict) -> None:
         """保存根数据到 JSONBin。
 
+        保存后清除根数据缓存，确保下次 _ensure_initialized 读取最新数据。
+
         Args:
             root: 根数据字典
 
@@ -199,6 +216,9 @@ class UserDataManager:
         """
         try:
             self._client.update_record(root)
+            # 保存后清除缓存，确保后续操作读取最新数据
+            self._root_cache = None
+            self._root_cache_time = 0
         except JSONBinError as exc:
             raise DataOperationError(f"保存数据失败: {exc}") from exc
 
@@ -402,6 +422,52 @@ class UserDataManager:
 
             self._save_root(root)
             logger.info("用户数据读取成功: %s", username)
+            return user_data
+
+    def record_login_success(self, username: str, user_data: dict) -> dict:
+        """登录成功后更新统计并保存（接受已获取的 user_data，避免重复网络读取）。
+
+        在一次 locked 操作中完成：读取根数据 → 更新登录计数 → 更新活跃时间 → 记录日志 → 保存。
+        与 safe_get_user 配合使用时，总网络调用为 1次读 + 1次写（相比 get_user 的 1次读 + 1次写
+        再加 safe_get_user 的 1次读，节省一次 Upstash 读取请求）。
+
+        Args:
+            username: 用户名
+            user_data: safe_get_user 返回的用户数据（会在此基础上更新统计）
+
+        Returns:
+            更新后的用户数据字典
+
+        Raises:
+            UserNotFoundError: 用户不存在
+            DataOperationError: 操作失败
+        """
+        with self._lock:
+            root = self._ensure_initialized()
+            users = root.get("users", {})
+
+            if username not in users:
+                raise UserNotFoundError(f"用户 {username!r} 不存在")
+
+            # 更新登录统计
+            stats = user_data.get("stats", {})
+            stats["login_count"] = stats.get("login_count", 0) + 1
+            user_data["stats"] = stats
+
+            # 更新活跃时间
+            self._touch_active(user_data)
+
+            users[username] = user_data
+            root["users"] = users
+
+            # 记录操作日志
+            self._log_operation(
+                root, action="login", username=username,
+                detail=f"用户登录: {username}",
+            )
+
+            self._save_root(root)
+            logger.info("登录成功记录完成: %s", username)
             return user_data
 
     def get_user_readonly(self, username: str) -> dict:

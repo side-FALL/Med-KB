@@ -615,6 +615,23 @@ hr {
     margin: 1.5rem 0;
 }
 
+/* ── 防止 status/expander 展开时布局抖动 ────────────────── */
+[data-testid="stStatusWidget"],
+[data-testid="stExpander"] {
+    contain: layout style;
+    overflow-anchor: auto;
+}
+
+/* 防止滚动条闪烁 */
+section[data-testid="stMain"] {
+    overflow-y: overlay;
+}
+
+/* 稳定 status 容器高度 */
+[data-testid="stStatusWidget"] {
+    min-height: 2.5rem;
+}
+
 /* ── 滚动条美化 ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
     width: 6px;

@@ -68,7 +68,6 @@ def render(
         with col_clear:
             if st.button("🗑️ 清空对话", use_container_width=True, key="clear_agent"):
                 st.session_state.agent_turns = []
-                st.rerun()
 
     # ── 显示历史对话 ────────────────────────────────────
     if st.session_state.agent_turns:
@@ -139,6 +138,8 @@ def _process_agent_query(
     # - 结束后不再 st.rerun()，避免整页重绘抖动
     with st.chat_message("assistant", avatar="🤖"):
         status = st.status("🤖 智能体思考中...", expanded=False)
+        # 思考步骤写入状态框内部，展开后可见
+        steps_container = status
         # 思考过程面板的占位（位于状态条与最终回答之间，稍后一次性填充）
         # 占位符在整个生命周期中始终存在，避免完成后插入新元素导致布局跳动
         expander_slot = st.empty()
@@ -162,9 +163,9 @@ def _process_agent_query(
                     conversation_history=[(q, a) for q, a, _ in st.session_state.agent_turns]
                 ):
                     if event["type"] == "step":
-                        # 推理步骤仅记录，不更新状态条标签
-                        # （状态条仅在 开始 → 思考中 → 完成/出错 三个关键节点更新）
+                        # 推理步骤写入状态框内部，展开后可见
                         steps.append(event["data"])
+                        steps_container.write(f"• {event['data']}")
                     elif event["type"] == "token":
                         final_answer += event["data"]
                         pending_tokens += event["data"]
@@ -211,6 +212,8 @@ def _process_agent_query(
                 status.update(label="❌ 出错了", state="error", expanded=False)
                 answer_slot.error(f"智能体执行出错：{result['error']}")
             else:
+                for step in result.get("steps", []):
+                    steps_container.write(f"• {step['tool']}: {step['input'][:80]}")
                 status.update(label="✅ 智能体完成", state="complete", expanded=False)
                 if result["output"]:
                     answer_slot.markdown(fix_latex_formulas(result["output"]))
