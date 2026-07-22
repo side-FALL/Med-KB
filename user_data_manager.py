@@ -522,6 +522,19 @@ class UserDataManager:
             ud = UserData.from_dict(user_data)
             ud.validate()
 
+            # 角色不可变性守卫：禁止通过 update_user 修改 role 字段（防止权限提升）
+            # role 仅可在 create_user（含特权校验）中设置，或由专门的管理员操作变更，
+            # 避免任意调用方借全量更新将自身/他人提权为 admin。
+            _existing_role = users[username].get("profile", {}).get("role", "user")
+            _incoming_profile = user_data.get("profile", {})
+            if isinstance(_incoming_profile, dict) and "role" in _incoming_profile:
+                _incoming_role = _incoming_profile["role"]
+                if _incoming_role != _existing_role:
+                    raise DataOperationError(
+                        "权限不足: 不允许通过用户数据更新修改角色"
+                        f"（当前: {_existing_role!r}, 尝试: {_incoming_role!r}）"
+                    )
+
             # 大小检查
             self._check_user_data_size(username, user_data)
 
