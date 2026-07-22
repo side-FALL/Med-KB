@@ -10,7 +10,7 @@ license: Apache License 2.0
 
 # 🏥 医学教材知识库
 
-> **当前版本：v2.2.3**
+> **当前版本：v2.2.4**
 
 基于RAG（检索增强生成）的医学教材智能问答系统，支持自然语言检索43本医学教材，AI自动生成回答。
 
@@ -18,7 +18,7 @@ license: Apache License 2.0
 
 - 📚 **43本医学教材**：覆盖临床医学全科教材
 - 🔍 **混合检索**：向量语义 + BM25关键词，支持权重调节
-- 💡 **多模型支持**：CherryIN DeepSeek、MiMo V2.5、火山方舟 DeepSeek
+- 💡 **多模型支持**：Gemma 4 26B（免费）、CherryIN DeepSeek、MiMo V2.5、火山方舟 DeepSeek
 - 🆓 **完全免费**：嵌入和回答模型均使用免费API
 - 📱 **多端适配**：支持PC和手机浏览器访问
 - 🔄 **多轮对话**：支持连续提问，上下文记忆，代词指代解析
@@ -85,10 +85,11 @@ license: Apache License 2.0
 
 ## 🛠️ 技术栈
 
-- **向量模型**：CherryIN BGE-M3 (免费)
+- **向量模型**：SiliconFlow BGE-M3 (免费)
 - **OCR识别**：CherryIN DeepSeek OCR (免费)
-- **回答生成**：CherryIN DeepSeek V4 Flash / MiMo V2.5 / 火山方舟 DeepSeek (免费)
+- **回答生成**：Google Gemma 4 26B / CherryIN DeepSeek V4 Flash / MiMo V2.5 / 火山方舟 DeepSeek (免费)
 - **向量存储**：NumPy (轻量级)
+- **用户数据**：Upstash Redis + JSONBin 备用降级
 - **前端框架**：Streamlit
 
 ## 🚀 使用方法
@@ -128,6 +129,7 @@ license: Apache License 2.0
 
 ## 📊 版本历史
 
+- **v2.2.4** (2026-07-22): 存储架构升级(Upstash Redis)、免费模型更新(Gemma 4)、教材重新OCR、Bug修复(章节显示/状态框/清空跳转/界面抖动)、登录性能优化
 - **v2.2.3** (2026-07-04): 用户系统、密码缓存、教材选择器修复、问答交互优化、模式差异化
 - **v2.2.2** (2026-06-27): 多模型支持、响应时间优化、免费模型提示、付费模型密码保护
 - **v2.2.1** (2026-06-21): 智能体对话式改造、置信度兜底、缓存优化、医疗蓝UI
@@ -165,8 +167,23 @@ streamlit run app.py
 | `CS_API_KEY` | CherryIN API 密钥 | [CherryIN 官网](https://open.cherryin.net) |
 | `MIMO_API_KEY` | MiMo API 密钥 | [MiMo 官网](https://api.xiaomimimo.com) |
 | `ARK_API_KEY` | 火山方舟 API 密钥 | [火山方舟官网](https://console.volcengine.com/ark) |
+| `OPENROUTER_API_KEY` | OpenRouter API 密钥 | [OpenRouter 官网](https://openrouter.ai) |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis URL | [Upstash 官网](https://upstash.com) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis Token | [Upstash 官网](https://upstash.com) |
 
 ## 📝 更新日志
+
+### v2.2.4 (2026-07-22)
+- ✅ 存储架构升级：用户数据从 JSONBin 迁移到 Upstash Redis，三级降级保障（Upstash → JSONBin → 本地缓存）
+- ✅ 免费模型更新：替换为 Google Gemma 4 26B，医学知识更准确，响应更快
+- ✅ 所有教材重新 OCR：文本识别精度大幅提升，数据质量显著提高
+- ✅ 智能体推理限制：添加 reasoning.max_tokens 参数，响应时间控制在 10 秒内
+- ✅ 修复参考来源章节显示：chapter 字段改为 section，正确显示章节名称
+- ✅ 修复状态框展开空白：status 块内添加可见内容
+- ✅ 修复清空对话跳转：移除多余的 st.rerun() 调用
+- ✅ 修复界面抖动：添加 scrollbar-gutter: stable 和 transition: none
+- ✅ 登录性能优化：减少重复网络请求，加载时间从 3-5 秒缩短至 1-2 秒
+- ✅ 安全加固：移除本地缓存明文存储密码哈希的风险
 
 ### v2.2.3 (2026-07-04)
 - ✅ 新增用户数据库系统：JSONBin API 集成，用户数据持久化存储
