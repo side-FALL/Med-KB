@@ -272,14 +272,13 @@ def render_update_announcement():
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.3 更新公告</h4>
-            <p><strong>用户系统 + 交互优化：</strong></p>
+            <h4>v2.2.4 更新公告</h4>
+            <p><strong>存储优化 + Bug修复：</strong></p>
             <ul>
-                <li>👤 用户系统：注册/登录/游客模式，数据云端同步</li>
-                <li>🔐 密码缓存：付费模型认证状态自动保存</li>
-                <li>💬 聊天式交互：问答和智能体统一为对话布局</li>
-                <li>🔍 查询重写：智能体模式支持代词追问</li>
-                <li>🛡️ DOS防护：请求限流保护</li>
+                <li>☁️ 存储升级：用户数据迁移到 Upstash Redis，JSONBin 备用降级</li>
+                <li>🤖 模型更新：免费模型替换为 Gemma 4 26B</li>
+                <li>🐛 修复：参考来源章节显示、状态框内容、清空对话跳转、界面抖动</li>
+                <li>⚡ 性能：登录加载速度优化</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
                 注册账号可保存学习数据，游客模式不保存
