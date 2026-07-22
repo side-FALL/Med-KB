@@ -615,7 +615,7 @@ hr {
     margin: 1.5rem 0;
 }
 
-/* ── 防止 status/expander 展开时布局抖动（激进方案）────────── */
+/* ── 防止 status/expander 展开时布局抖动 ──────────────────── */
 
 /* 1. 强制滚动条始终可见，避免出现/消失导致宽度变化 */
 section[data-testid="stMain"] > div {
@@ -623,28 +623,15 @@ section[data-testid="stMain"] > div {
     scrollbar-gutter: stable !important;
 }
 
-/* 2. 隔离 status/expander 的布局计算 */
+/* 2. 禁止动画过渡，避免平滑动画导致视觉抖动 */
 [data-testid="stStatusWidget"],
 [data-testid="stExpander"] {
-    contain: layout size !important;
-    will-change: height !important;
+    transition: none !important;
 }
 
 /* 3. 稳定 status 容器最小高度 */
 [data-testid="stStatusWidget"] {
     min-height: 2.5rem;
-    transition: none !important;
-}
-
-/* 4. expander 内容区域预占位 */
-[data-testid="stExpander"] > div:nth-child(2) {
-    min-height: 0;
-    overflow: hidden;
-}
-
-/* 5. 防止 chat message 区域因 status 变化而位移 */
-[data-testid="stChatMessage"] {
-    contain: layout style !important;
 }
 
 /* ── 滚动条美化 ──────────────────────────────────────────── */
