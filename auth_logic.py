@@ -247,6 +247,11 @@ def login_user(
                 return None, "用户名不存在"
             return None, error_msg
 
+        # 检查账户是否被禁用
+        if user_data.get("profile", {}).get("disabled", False):
+            logger.warning("用户 %s 登录被拒绝：账户已被禁用", username)
+            return None, "该账户已被禁用，请联系管理员"
+
         # 2. 验证密码
         stored_hash = user_data.get("profile", {}).get("password_hash", "")
         if not stored_hash:
