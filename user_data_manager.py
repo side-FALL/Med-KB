@@ -223,7 +223,8 @@ class UserDataManager:
             raise DataOperationError(f"保存数据失败: {exc}") from exc
 
     def _log_operation(self, root: dict, action: str, username: str = "",
-                       detail: str = "", ip_address: str = "") -> None:
+                       detail: str = "", ip_address: str = "",
+                       target: str = "") -> None:
         """记录操作日志到根数据中。
 
         日志内容会过滤敏感信息。
@@ -234,13 +235,18 @@ class UserDataManager:
             username: 操作用户
             detail: 操作详情
             ip_address: 来源 IP
+            target: 目标用户（管理员操作的被操作用户，存入 extra_data）
         """
         logs = root.get("logs", create_default_logs())
         sanitized_detail = _sanitize_sensitive_info(_sanitize_log_value(detail))
         sanitized_username = _sanitize_log_value(username)
+        extra_data = {}
+        if target:
+            extra_data["target"] = _sanitize_log_value(target)
         root["logs"] = add_operation_log(
             logs, action=action, username=sanitized_username,
             detail=sanitized_detail, ip_address=ip_address,
+            extra_data=extra_data,
         )
 
     def _log_error(self, root: dict, error_type: str, message: str,
@@ -576,8 +582,9 @@ class UserDataManager:
 
             # 记录操作日志
             self._log_operation(
-                root, action="logout", username=username,
+                root, action="delete_user", username=username,
                 detail=f"用户删除: {username}",
+                target=username,
             )
 
             # 更新统计
@@ -642,8 +649,9 @@ class UserDataManager:
 
             operator_name = operator or self._current_user or "admin"
             self._log_operation(
-                root, action="update_prefs", username=operator_name,
+                root, action="change_role", username=operator_name,
                 detail=f"角色变更: {username} ({current_role} -> {new_role})",
+                target=username,
             )
 
             self._save_root(root)
@@ -683,8 +691,9 @@ class UserDataManager:
 
             operator_name = operator or self._current_user or "admin"
             self._log_operation(
-                root, action="update_prefs", username=operator_name,
+                root, action="reset_password", username=operator_name,
                 detail=f"密码重置: {username}",
+                target=username,
             )
 
             self._save_root(root)
@@ -725,9 +734,11 @@ class UserDataManager:
 
             operator_name = operator or self._current_user or "admin"
             action_text = "禁用" if disabled else "启用"
+            log_action = "disable_user" if disabled else "enable_user"
             self._log_operation(
-                root, action="update_prefs", username=operator_name,
+                root, action=log_action, username=operator_name,
                 detail=f"账户{action_text}: {username}",
+                target=username,
             )
 
             self._save_root(root)

@@ -50,6 +50,63 @@ def _safe_str(value, default="") -> str:
     return default
 
 
+# ── 操作日志辅助 ─────────────────────────────────────────
+
+_ACTION_LABELS = {
+    "login": "用户登录",
+    "logout": "退出登录",
+    "register": "用户注册",
+    "search": "搜索",
+    "query": "查询",
+    "update_prefs": "更新偏好",
+    "change_role": "角色变更",
+    "reset_password": "密码重置",
+    "delete_user": "删除用户",
+    "disable_user": "禁用用户",
+    "enable_user": "启用用户",
+}
+
+
+def _action_label(action: str) -> str:
+    """将 action 内部标识转为中文标签。"""
+    return _ACTION_LABELS.get(action, action)
+
+
+def _build_logs_csv(logs: list) -> str:
+    """将操作日志列表构建为 CSV 字符串。"""
+    import csv
+    import io
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["时间", "操作者", "操作类型", "目标用户", "操作详情"])
+    for log in logs:
+        writer.writerow([
+            _format_datetime(log.get("timestamp", "")),
+            log.get("username", ""),
+            _action_label(log.get("action", "")),
+            log.get("extra_data", {}).get("target", ""),
+            log.get("detail", ""),
+        ])
+    return output.getvalue()
+
+
+def _build_logs_json(logs: list) -> str:
+    """将操作日志列表构建为 JSON 字符串。"""
+    import json
+
+    rows = []
+    for log in logs:
+        rows.append({
+            "时间": log.get("timestamp", ""),
+            "操作者": log.get("username", ""),
+            "操作类型": log.get("action", ""),
+            "目标用户": log.get("extra_data", {}).get("target", ""),
+            "操作详情": log.get("detail", ""),
+        })
+    return json.dumps(rows, ensure_ascii=False, indent=2)
+
+
 # ── 渲染函数 ─────────────────────────────────────────────
 
 def _render_admin_header():
@@ -139,6 +196,23 @@ def _render_system_stats(manager):
         st.metric("本周活跃", active_week)
     with ca3:
         st.metric("本月活跃", active_month)
+
+    # ── 统计可视化（替代纯数字展示）──
+    st.markdown("**📊 统计概览图**")
+    try:
+        import pandas as pd
+        chart_data = pd.DataFrame({
+            "指标": ["总用户", "管理员", "普通用户", "今日活跃", "本周活跃", "本月活跃"],
+            "数量": [
+                stats["total_users"], stats["admin_count"],
+                stats.get("user_count", 0),
+                active_today, active_week, active_month,
+            ],
+        })
+        st.bar_chart(chart_data.set_index("指标"), use_container_width=True)
+    except Exception:
+        # pandas 不可用时静默降级（已有 metric 展示数字）
+        pass
 
 
 def _render_trend_charts(manager):
@@ -628,8 +702,9 @@ def _render_user_management(manager, current_admin: str):
     start_idx = current_page * page_size
     page_users = filtered[start_idx:start_idx + page_size]
 
-    # ── 用户列表表格（概览）──
-    table_data = {
+    # ── 用户列表数据表格（支持排序、筛选交互）──
+    import pandas as pd
+    table_df = pd.DataFrame({
         "用户名": [u["username"] for u in page_users],
         "角色": [u["role"] for u in page_users],
         "邮箱": [u.get("email", "-") or "-" for u in page_users],
@@ -637,8 +712,8 @@ def _render_user_management(manager, current_admin: str):
         "最后活跃": [_format_datetime(u["last_active_at"]) for u in page_users],
         "登录次数": [u.get("login_count", 0) for u in page_users],
         "状态": ["🚫 禁用" if u.get("disabled") else "✅ 正常" for u in page_users],
-    }
-    st.table(table_data)
+    })
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
 
     # ── 角色分布摘要（caption 调用一次）──
     admin_count = sum(1 for u in users if u["role"] == "admin")
@@ -762,6 +837,88 @@ def _render_user_management(manager, current_admin: str):
                 st.caption("⚠️ 无法对当前登录的管理员账号执行修改角色/禁用/删除操作")
 
 
+def _render_operation_logs(manager):
+    """渲染操作日志模块（标准一~三）。
+
+    展示管理员操作审计日志，支持按操作类型筛选和导出 CSV/JSON。
+
+    Args:
+        manager: UserDataManager 实例
+    """
+    st.subheader("📋 操作日志")
+    st.caption("ℹ️ 操作日志上限为 100 条，以下仅显示近期记录")
+
+    try:
+        logs = manager.get_operation_logs()
+    except Exception as exc:
+        st.error(f"加载操作日志失败: {exc}")
+        return
+
+    if not logs:
+        st.info("暂无操作日志记录")
+        return
+
+    # 按时间倒序
+    logs = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)
+
+    # 工具栏：筛选 + 导出
+    col_filter, col_csv, col_json = st.columns([2, 1, 1])
+    with col_filter:
+        all_actions = sorted(set(l.get("action", "") for l in logs if l.get("action")))
+        action_options = ["全部"] + [_action_label(a) for a in all_actions]
+        filter_input = st.selectbox(
+            "按操作类型筛选", action_options,
+            key="admin_log_filter",
+        )
+        filter_choice = _safe_str(filter_input, "全部")
+
+    # 筛选日志
+    if filter_choice != "全部":
+        target_action = ""
+        for act, label in _ACTION_LABELS.items():
+            if label == filter_choice:
+                target_action = act
+                break
+        if target_action:
+            logs = [l for l in logs if l.get("action") == target_action]
+
+    with col_csv:
+        st.download_button(
+            "📥 导出 CSV",
+            data=_build_logs_csv(logs),
+            file_name="operation_logs.csv",
+            mime="text/csv",
+            key="admin_logs_export_csv",
+            use_container_width=True,
+        )
+    with col_json:
+        st.download_button(
+            "📥 导出 JSON",
+            data=_build_logs_json(logs),
+            file_name="operation_logs.json",
+            mime="application/json",
+            key="admin_logs_export_json",
+            use_container_width=True,
+        )
+
+    # 日志表格（时间、操作者、操作类型、目标用户、操作详情）
+    import pandas as pd
+    log_rows = []
+    for l in logs:
+        log_rows.append({
+            "时间": _format_datetime(l.get("timestamp", "")),
+            "操作者": l.get("username", "-"),
+            "操作类型": _action_label(l.get("action", "")),
+            "目标用户": l.get("extra_data", {}).get("target", "-") or "-",
+            "操作详情": l.get("detail", "-"),
+        })
+    if log_rows:
+        log_df = pd.DataFrame(log_rows)
+        st.dataframe(log_df, use_container_width=True, hide_index=True)
+    else:
+        st.caption("无匹配的日志记录")
+
+
 # ── 主入口 ───────────────────────────────────────────────
 
 def render_admin_panel(manager):
@@ -782,8 +939,8 @@ def render_admin_panel(manager):
     # 渲染标题
     _render_admin_header()
 
-    # 返回按钮
-    col_back, col_refresh = st.columns([1, 4])
+    # 返回按钮（左）+ 刷新按钮（右上角）
+    col_back, col_spacer, col_refresh = st.columns([1, 3, 1])
     with col_back:
         if st.button("← 返回主界面", key="admin_back_to_main"):
             st.session_state["view"] = "main"
@@ -796,25 +953,32 @@ def render_admin_panel(manager):
 
     st.divider()
 
-    # 系统统计（含活跃用户）
-    _render_system_stats(manager)
+    # 数据加载时显示加载状态提示（标准七：spinner）
+    with st.spinner("正在加载管理面板数据..."):
+        # 系统统计（含活跃用户 + 可视化图表）
+        _render_system_stats(manager)
+
+        st.divider()
+
+        # 趋势分析（查询趋势 + 用户增长）
+        _render_trend_charts(manager)
+
+        st.divider()
+
+        # 模式使用分布
+        _render_mode_usage(manager)
+
+        st.divider()
+
+        # 系统配置
+        _render_system_config(manager)
+
+        st.divider()
+
+        # 用户管理（增强）
+        _render_user_management(manager, current_admin)
 
     st.divider()
 
-    # 趋势分析（查询趋势 + 用户增长）
-    _render_trend_charts(manager)
-
-    st.divider()
-
-    # 模式使用分布
-    _render_mode_usage(manager)
-
-    st.divider()
-
-    # 系统配置
-    _render_system_config(manager)
-
-    st.divider()
-
-    # 用户管理（增强）
-    _render_user_management(manager, current_admin)
+    # 操作日志（标准一~三：审计日志 + 导出）
+    _render_operation_logs(manager)
