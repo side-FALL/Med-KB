@@ -19,10 +19,14 @@ from config import MODELS, get_api_key, check_env_security
 
 # 启动时检查 .env 安全状态
 check_env_security()
-from ui_styles import inject_global_styles
+from ui_styles import inject_global_styles, inject_user_preferences
 from ui_components import (
     load_manifest, get_book_stats, render_sidebar,
     render_scope_and_model_selector, render_update_announcement,
+)
+from settings_components import (
+    t, ensure_pref_defaults, load_preferences_from_user_data,
+    render_user_info_section, render_preferences_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
@@ -90,6 +94,13 @@ if not CS_API_KEY:
 username = get_auth_username()
 auth_mode = get_auth_mode()
 
+# ── 个人偏好：恢复持久化偏好并注入主题/字体样式 ──────────
+# 必须先于页面内容渲染：widget 修改偏好触发 rerun 后，
+# 下一次 run 在此处注入新样式，实现切换立即生效
+ensure_pref_defaults()
+load_preferences_from_user_data()
+inject_user_preferences()
+
 # 从session_state获取设置值（在设置页面中更新）
 top_k = st.session_state.get("top_k", 10)
 alpha = st.session_state.get("alpha", 0.7)
@@ -99,24 +110,24 @@ use_context = st.session_state.get("use_context", True)
 st.markdown(f"""
 <div class="medical-brand fade-in-up">
     <span class="brand-icon">🏥</span>
-    <h1 class="brand-title">医学教材知识库</h1>
-    <p class="brand-tagline">AI 驱动的医学知识检索与学习平台</p>
+    <h1 class="brand-title">{t('app_title')}</h1>
+    <p class="brand-tagline">{t('app_tagline')}</p>
     <div class="brand-stats">
         <div class="stat-item">
             <span class="stat-icon">📚</span>
-            <span>{book_count} 本教材</span>
+            <span>{book_count} {t('stat_books')}</span>
         </div>
         <div class="stat-item">
             <span class="stat-icon">📄</span>
-            <span>{total_chunks:,} 个知识点</span>
+            <span>{total_chunks:,} {t('stat_chunks')}</span>
         </div>
         <div class="stat-item">
             <span class="stat-icon">🆓</span>
-            <span>完全免费</span>
+            <span>{t('stat_free')}</span>
         </div>
         <div class="stat-item">
             <span class="stat-icon">🕐</span>
-            <span>24h 在线</span>
+            <span>{t('stat_online')}</span>
         </div>
     </div>
 </div>
@@ -168,66 +179,27 @@ with mode[4]:
 
 # ── 模式六：设置 ────────────────────────────────────────
 with mode[5]:
-    st.markdown("### ⚙️ 个人设置")
+    st.markdown(f"### {t('settings_title')}")
 
-    # 用户信息
-    if auth_mode != "guest":
-        user_data = st.session_state.get("user_data", {})
-        profile = user_data.get("profile", {})
+    # 用户信息（登录用户显示详细信息卡片，游客显示提示卡片）
+    render_user_info_section(username, auth_mode, is_admin())
 
-        # 用户信息卡片
-        admin_badge = ""
-        if is_admin():
-            admin_badge = ' <span style="font-size:0.68rem; background:#0D6EFD; color:#FFFFFF; padding:2px 8px; border-radius:8px; font-weight:600;">管理员</span>'
+    st.divider()
 
-        st.markdown(f"""
-        <div style="background:linear-gradient(135deg, rgba(13,110,253,0.08) 0%, rgba(10,88,202,0.04) 100%);
-                    border-radius:12px; padding:1rem; margin-bottom:1rem;
-                    border:1px solid rgba(13,110,253,0.15);">
-            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                <span style="font-size:1.5rem;">👤</span>
-                <span style="font-weight:700; color:#0A58CA; font-size:1.1rem;">{profile.get('username', 'N/A')}</span>
-                {admin_badge}
-            </div>
-            <div style="display:flex; gap:2rem; color:#6C757D; font-size:0.85rem;">
-                <span>登录次数: {user_data.get('stats', {}).get('login_count', 0)}</span>
-                <span>查询次数: {user_data.get('stats', {}).get('total_queries', 0)}</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # 退出登录按钮
-        if st.button("🚪 退出登录", use_container_width=True, key="settings_logout"):
-            logout()
-            st.rerun()
-    else:
-        # 游客模式
-        st.markdown("""
-        <div style="background:#FFF8E1; border-radius:12px; padding:1rem; margin-bottom:1rem;
-                    border:1px solid #FFE082;">
-            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                <span style="font-size:1.5rem;">👤</span>
-                <span style="font-weight:700; color:#F57F17; font-size:1.1rem;">游客模式</span>
-            </div>
-            <div style="color:#795548; font-size:0.85rem;">数据不会保存 · 功能受限</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("📝 注册/登录", use_container_width=True, key="settings_login"):
-            logout()
-            st.rerun()
+    # 个人偏好（主题 / 语言 / 字体大小 / 显示名称）
+    render_preferences_section()
 
     st.divider()
 
     # 检索设置
-    st.markdown("#### 🔍 检索设置")
-    top_k = st.slider("返回结果数", 3, 15, st.session_state.get("top_k", 10),
-        help="每次检索返回的相关文本块数量", key="top_k_slider")
-    alpha = st.slider("向量权重 (α)", 0.0, 1.0, st.session_state.get("alpha", 0.7),
-        help="1.0=纯向量检索，0.0=纯关键词检索", key="alpha_slider")
-    use_context = st.checkbox("启用多轮对话",
+    st.markdown(f"#### {t('retrieval_title')}")
+    top_k = st.slider(t("top_k_label"), 3, 15, st.session_state.get("top_k", 10),
+        help=t("top_k_help"), key="top_k_slider")
+    alpha = st.slider(t("alpha_label"), 0.0, 1.0, st.session_state.get("alpha", 0.7),
+        help=t("alpha_help"), key="alpha_slider")
+    use_context = st.checkbox(t("use_context_label"),
         value=st.session_state.get("use_context", True),
-        help="开启后AI会参考之前对话的上下文", key="use_context_cb")
+        help=t("use_context_help"), key="use_context_cb")
 
     # 更新session_state
     st.session_state["top_k"] = top_k
@@ -237,15 +209,15 @@ with mode[5]:
     st.divider()
 
     # 搜索历史
-    st.markdown("#### 📜 搜索历史")
+    st.markdown(f"#### {t('history_title')}")
     if st.session_state.hist:
         for i, item in enumerate(reversed(st.session_state.hist[-10:])):
             mode_icon = {"问答":"💬","刷题":"📝","对比":"🔄","病例":"🏥","智能体":"🤖"}.get(item.get("mode","问答"),"💬")
             st.markdown(f"{mode_icon} {item.get('q', '')[:50]}")
     else:
-        st.info("暂无搜索历史")
+        st.info(t("history_empty"))
 
-    if st.button("🗑️ 清空全部记录", use_container_width=True):
+    if st.button(t("history_clear"), use_container_width=True, key="settings_clear_hist"):
         st.session_state.hist = []
         st.session_state.conversation_turns = []
         st.session_state.favorites = []
@@ -254,23 +226,23 @@ with mode[5]:
     st.divider()
 
     # 统计信息
-    st.markdown("#### 📊 知识库统计")
+    st.markdown(f"#### {t('kb_stats_title')}")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("教材数量", f"{book_count} 本")
+        st.metric(t("kb_books"), f"{book_count} 本" if st.session_state.get("pref_language") == "zh-CN" else f"{book_count}")
     with col2:
-        st.metric("文本块数", f"{total_chunks:,} 块")
+        st.metric(t("kb_chunks"), f"{total_chunks:,}")
     with col3:
-        st.metric("嵌入模型", "BGE-M3")
+        st.metric(t("kb_embed"), "BGE-M3")
 
     st.divider()
 
     # 关于
-    st.markdown("#### ℹ️ 关于")
+    st.markdown(f"#### {t('about_title')}")
     from __init__ import __version__
-    st.markdown(f"**版本：** {__version__}")
-    st.markdown("**项目：** 医学教材知识库")
-    st.markdown("**说明：** AI 驱动的医学知识检索与学习平台")
+    st.markdown(f"{t('about_version')} {__version__}")
+    st.markdown(f"{t('about_project')} {t('app_title')}")
+    st.markdown(f"{t('about_desc')} {t('about_desc_value')}")
 
 # ── 模式七：管理面板（仅管理员可见）──────────────────────
 if is_admin():
