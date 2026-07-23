@@ -204,7 +204,11 @@ scope, selected_model, selected_books = render_scope_and_model_selector(
 )
 
 # ── 模式切换 ────────────────────────────────────────────
-mode = st.tabs(["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式"])
+# 管理员可见管理面板标签页
+tabs_list = ["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式"]
+if is_admin():
+    tabs_list.append("🔧 管理面板")
+mode = st.tabs(tabs_list)
 
 # ── 模式一：智能问答（延迟导入）────────────────────────
 with mode[0]:
@@ -234,3 +238,10 @@ with mode[3]:
 with mode[4]:
     from modes.agent import render as render_agent
     render_agent(ALL_BOOKS, book_count, scope, selected_model, selected_books)
+
+# ── 模式六：管理面板（仅管理员可见）──────────────────────
+if is_admin():
+    with mode[5]:
+        from admin_panel import render_admin_panel
+        manager = get_data_manager()
+        render_admin_panel(manager)
