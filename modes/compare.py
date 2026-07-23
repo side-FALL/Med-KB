@@ -58,6 +58,9 @@ def render(
     cmp_btn = st.button("🔄 开始对比", type="primary", use_container_width=True, key="cmp_btn")
 
     if cmp_btn and concept_a.strip() and concept_b.strip():
+        # 从 session_state 实时读取 top_k/alpha，确保设置页修改立即生效
+        current_top_k = st.session_state.get("top_k", top_k)
+        current_alpha = st.session_state.get("alpha", alpha)
         books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
         embeddings, documents, metadatas = load_selected_books(books_to_load, manifest)
         if embeddings is None:
@@ -66,8 +69,8 @@ def render(
         api_key, api_url, model_id = get_model_api_config(selected_model)
 
         with st.status("🔍 分别检索两个概念...", expanded=True) as status:
-            hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
-            hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
+            hits_a = search(concept_a.strip(), embeddings, documents, metadatas, k=current_top_k, alpha=current_alpha)
+            hits_b = search(concept_b.strip(), embeddings, documents, metadatas, k=current_top_k, alpha=current_alpha)
             if hits_a or hits_b:
                 st.write(f"✅ {concept_a} 找到 {len(hits_a)} 条，{concept_b} 找到 {len(hits_b)} 条")
                 status.update(label="✅ 检索完成", state="complete", expanded=False)

@@ -44,9 +44,11 @@ def _record_learning(query: str, topic: str = "") -> None:
 def render(
     ALL_BOOKS: list[str],
     book_count: int,
-    scope: str,
-    selected_model: str,
-    selected_books: list[str],
+    top_k: int = 10,
+    alpha: float = 0.7,
+    scope: str = "全部教材",
+    selected_model: str = "",
+    selected_books: list[str] | None = None,
 ):
     """渲染智能体模式界面 — 聊天式布局。"""
     st.markdown("🤖 **智能体模式**：AI会自动选择工具（搜索教材、计算剂量、查询正常值、对比概念、病例分析）来回答你的问题。支持多轮对话。")
@@ -104,9 +106,13 @@ def render(
 
     # ── 处理新输入 ─────────────────────────────────────
     if agent_input and agent_input.strip():
+        # 从 session_state 实时读取 top_k/alpha，确保设置页修改立即生效
+        current_top_k = st.session_state.get("top_k", top_k)
+        current_alpha = st.session_state.get("alpha", alpha)
         _process_agent_query(
             agent_input.strip(),
             ALL_BOOKS, book_count,
+            current_top_k, current_alpha,
             scope, selected_model, selected_books,
         )
 
@@ -115,6 +121,8 @@ def _process_agent_query(
     query: str,
     ALL_BOOKS: list[str],
     book_count: int,
+    top_k: int,
+    alpha: float,
     scope: str,
     selected_model: str,
     selected_books: list[str],

@@ -383,8 +383,8 @@ def render_source_cards_inline(hits: list[dict]):
     if not hits:
         return
 
-    with st.expander(f"📚 参考来源 ({len(hits[:5])} 条)", expanded=False):
-        for i, h in enumerate(hits[:5]):
+    with st.expander(f"📚 参考来源 ({len(hits)} 条)", expanded=False):
+        for i, h in enumerate(hits):
             score = h.get("similarity", 0)
             if score > 0.8:
                 score_color = "#2E7D32"

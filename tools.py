@@ -22,6 +22,33 @@ from langchain_core.tools import Tool, StructuredTool
 from pydantic import BaseModel, Field
 from openai import OpenAI
 
+# 尝试导入 streamlit 以读取 session_state 中的 top_k/alpha 设置
+try:
+    import streamlit as st
+    _HAS_STREAMLIT = True
+except ImportError:
+    _HAS_STREAMLIT = False
+
+
+def _get_top_k(default: int = 10) -> int:
+    """从 session_state 读取用户设置的 top_k，若不可用则返回默认值。"""
+    if _HAS_STREAMLIT:
+        try:
+            return int(st.session_state.get("top_k", default))
+        except Exception:
+            pass
+    return default
+
+
+def _get_alpha(default: float = 0.7) -> float:
+    """从 session_state 读取用户设置的 alpha，若不可用则返回默认值。"""
+    if _HAS_STREAMLIT:
+        try:
+            return float(st.session_state.get("alpha", default))
+        except Exception:
+            pass
+    return default
+
 from llm_utils import (
     call_llm,
     build_user_message,
@@ -240,7 +267,7 @@ def _search_textbook(query: str) -> str:
         if embeddings is None:
             return "错误: 未加载到教材数据"
 
-        hits = _hybrid_search(query, embeddings, documents, metadatas, k=5, alpha=0.7)
+        hits = _hybrid_search(query, embeddings, documents, metadatas, k=_get_top_k(), alpha=_get_alpha())
         if not hits:
             return "未找到相关教材内容，请换个关键词试试。"
 
@@ -463,8 +490,8 @@ def _compare_concepts(concept_a: str, concept_b: str) -> str:
         if embeddings is None:
             return "错误: 未加载到教材数据"
 
-        hits_a = _hybrid_search(concept_a, embeddings, documents, metadatas, k=5, alpha=0.7)
-        hits_b = _hybrid_search(concept_b, embeddings, documents, metadatas, k=5, alpha=0.7)
+        hits_a = _hybrid_search(concept_a, embeddings, documents, metadatas, k=_get_top_k(), alpha=_get_alpha())
+        hits_b = _hybrid_search(concept_b, embeddings, documents, metadatas, k=_get_top_k(), alpha=_get_alpha())
 
         if not hits_a and not hits_b:
             return f"未找到 '{concept_a}' 和 '{concept_b}' 的相关教材内容。"
@@ -510,7 +537,7 @@ def _analyze_case(case_description: str) -> str:
         if embeddings is None:
             return "错误: 未加载到教材数据"
 
-        hits = _hybrid_search(case_description, embeddings, documents, metadatas, k=5, alpha=0.7)
+        hits = _hybrid_search(case_description, embeddings, documents, metadatas, k=_get_top_k(), alpha=_get_alpha())
         if not hits:
             return "未找到相关教材内容，请补充更多病例信息。"
 

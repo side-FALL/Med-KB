@@ -55,6 +55,9 @@ def render(
     case_btn = st.button("🏥 开始分析", type="primary", use_container_width=True, key="case_btn")
 
     if case_btn and case_desc.strip():
+        # 从 session_state 实时读取 top_k/alpha，确保设置页修改立即生效
+        current_top_k = st.session_state.get("top_k", top_k)
+        current_alpha = st.session_state.get("alpha", alpha)
         books_to_load = selected_books if scope == "选择教材" and len(selected_books) < book_count else ALL_BOOKS
         embeddings, documents, metadatas = load_selected_books(books_to_load, manifest)
         if embeddings is None:
@@ -63,7 +66,7 @@ def render(
         api_key, api_url, model_id = get_model_api_config(selected_model)
 
         with st.status("🔍 检索相关教材...", expanded=True) as status:
-            hits = search(case_desc.strip(), embeddings, documents, metadatas, k=top_k, alpha=alpha)
+            hits = search(case_desc.strip(), embeddings, documents, metadatas, k=current_top_k, alpha=current_alpha)
             if hits:
                 st.write(f"✅ 找到 {len(hits)} 条相关内容")
                 status.update(label="✅ 检索完成", state="complete", expanded=False)
