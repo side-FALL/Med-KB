@@ -8,6 +8,7 @@
 """
 
 import logging
+from datetime import datetime
 
 import streamlit as st
 
@@ -21,6 +22,7 @@ from llm_utils import (
     COMPACT_SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT,
     rewrite_query, build_user_message, call_llm_stream,
 )
+from settings_components import consume_pending_search
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,20 @@ def render(
         current_use_context = st.session_state.get("use_context", use_context)
         _process_query(
             user_input.strip(),
+            manifest, ALL_BOOKS, book_count,
+            current_top_k, current_alpha, current_use_context,
+            scope, selected_model, selected_books,
+            prompt_to_use,
+        )
+
+    # 检测设置页「重新搜索」触发的待搜索请求
+    pending_q = consume_pending_search("问答")
+    if pending_q:
+        current_top_k = st.session_state.get("top_k", top_k)
+        current_alpha = st.session_state.get("alpha", alpha)
+        current_use_context = st.session_state.get("use_context", use_context)
+        _process_query(
+            pending_q,
             manifest, ALL_BOOKS, book_count,
             current_top_k, current_alpha, current_use_context,
             scope, selected_model, selected_books,
@@ -225,6 +241,7 @@ def _process_query(
                 "a": ans,
                 "model": MODELS[selected_model]["name"],
                 "mode": "问答",
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             })
             if use_context:
                 st.session_state.conversation_turns.append((query, ans))
@@ -240,4 +257,5 @@ def _process_query(
                 "a": "未找到相关内容",
                 "model": MODELS[selected_model]["name"],
                 "mode": "问答",
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             })

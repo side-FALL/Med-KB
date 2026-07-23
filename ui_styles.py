@@ -121,6 +121,13 @@ _SETTINGS_CARD_CSS = """
     border-radius: 6px;
     font-weight: 600;
 }
+/* 搜索历史列表项 */
+.hist-query {
+    font-size: 0.88rem;
+    color: #212529;
+    line-height: 1.6;
+    word-break: break-all;
+}
 """
 
 _DARK_THEME_CSS = """
@@ -184,6 +191,8 @@ _DARK_THEME_CSS = """
 .tm-book-name { color: #E6E6E6; }
 .tm-subject-badge { background: rgba(13,110,253,0.25); color: #6EA8FE; }
 .tm-chunks { color: #8A8F98; }
+/* 搜索历史暗色适配 */
+.hist-query { color: #E6E6E6; }
 """
 
 

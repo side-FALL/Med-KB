@@ -15,7 +15,10 @@
 
 from __future__ import annotations
 
+import csv
 import html
+import io
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -102,6 +105,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_title": "📜 搜索历史",
         "history_empty": "暂无搜索历史",
         "history_clear": "🗑️ 清空全部记录",
+        "history_resend": "🔄 重新搜索",
+        "history_delete": "删除该条",
+        "history_export_csv": "📥 导出 CSV",
+        "history_export_json": "📥 导出 JSON",
+        "history_time": "搜索时间",
+        "history_mode_col": "模式",
+        "history_query": "查询内容",
+        "history_model_col": "模型",
+        "history_resend_hint": "已触发重新搜索，请切换到「{mode}」标签页查看结果",
         # 统计
         "kb_stats_title": "📊 知识库统计",
         "kb_books": "教材数量",
@@ -181,6 +193,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_title": "📜 Search History",
         "history_empty": "No search history yet",
         "history_clear": "🗑️ Clear All Records",
+        "history_resend": "🔄 Search Again",
+        "history_delete": "Delete this entry",
+        "history_export_csv": "📥 Export CSV",
+        "history_export_json": "📥 Export JSON",
+        "history_time": "Time",
+        "history_mode_col": "Mode",
+        "history_query": "Query",
+        "history_model_col": "Model",
+        "history_resend_hint": "Search triggered — switch to the \"{mode}\" tab to see results",
         # Stats
         "kb_stats_title": "📊 Knowledge Base Stats",
         "kb_books": "Textbooks",
@@ -683,3 +704,153 @@ def render_textbook_management_section(book_stats: dict, ALL_BOOKS: list[str]) -
                     f"<span class='tm-selected-badge'>{t('tm_selected_badge')}</span>",
                     unsafe_allow_html=True,
                 )
+
+
+# ── 搜索历史 ─────────────────────────────────────────────
+
+_MODE_ICONS = {"问答": "💬", "刷题": "📝", "对比": "🔄", "病例": "🏥", "智能体": "🤖"}
+
+
+def consume_pending_search(mode: str) -> str | None:
+    """检查并消费 pending_search（匹配模式则返回查询内容并清除标志）。
+
+    在各模式 render 开头调用。不匹配的 pending_search 会被放回 session_state，
+    供后续模式检测。由于 Streamlit tabs 中所有内容都会执行，
+    遍历顺序（qa→…→agent）保证了匹配的模式能正确消费。
+    """
+    pending = st.session_state.pop("pending_search", None)
+    if pending and pending.get("mode") == mode:
+        return pending.get("query", "")
+    # 不匹配则放回，供后续模式检测
+    if pending:
+        st.session_state["pending_search"] = pending
+    return None
+
+
+def _delete_history_item(orig_idx: int) -> None:
+    """删除单条历史记录（on_click 回调，按钮点击已触发 rerun，无需额外操作）。"""
+    hist = st.session_state.get("hist") or []
+    if 0 <= orig_idx < len(hist):
+        hist.pop(orig_idx)
+        st.session_state.hist = hist
+
+
+def _resend_search(orig_idx: int) -> None:
+    """设置待搜索标志（on_click 回调），各模式 render 时检测并触发搜索。"""
+    hist = st.session_state.get("hist") or []
+    if 0 <= orig_idx < len(hist):
+        item = hist[orig_idx]
+        st.session_state["pending_search"] = {
+            "query": item.get("q", ""),
+            "mode": item.get("mode", "问答"),
+        }
+
+
+def _build_history_csv(hist: list) -> str:
+    """将搜索历史构建为 CSV 字符串（UTF-8 BOM 头确保 Excel 正确显示中文）。"""
+    output = io.StringIO()
+    output.write("\ufeff")  # UTF-8 BOM
+    writer = csv.writer(output)
+    writer.writerow([
+        t("history_time"), t("history_mode_col"),
+        t("history_query"), t("history_model_col"),
+    ])
+    for item in hist:
+        writer.writerow([
+            item.get("time", ""),
+            item.get("mode", ""),
+            item.get("q", ""),
+            item.get("model", ""),
+        ])
+    return output.getvalue()
+
+
+def render_search_history_section() -> None:
+    """渲染搜索历史增强模块。
+
+    - 历史记录按时间倒序排列
+    - 每条显示：搜索时间、查询内容、模式
+    - 点击「🔄 重新搜索」可自动填入对应模式并触发搜索
+    - 每条有删除按钮，点击后该条记录立即移除
+    - 支持导出 CSV / JSON 格式文件
+    """
+    st.markdown(f"#### {t('history_title')}")
+
+    hist = st.session_state.get("hist") or []
+
+    if not hist:
+        st.info(t("history_empty"))
+        return
+
+    # 工具栏：导出 CSV / 导出 JSON / 清空全部
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.download_button(
+            t("history_export_csv"),
+            data=_build_history_csv(hist),
+            file_name="search_history.csv",
+            mime="text/csv",
+            key="hist_export_csv",
+            use_container_width=True,
+        )
+    with col2:
+        st.download_button(
+            t("history_export_json"),
+            data=json.dumps(hist, ensure_ascii=False, indent=2),
+            file_name="search_history.json",
+            mime="application/json",
+            key="hist_export_json",
+            use_container_width=True,
+        )
+    with col3:
+        if st.button(t("history_clear"), key="settings_clear_hist",
+                      use_container_width=True):
+            st.session_state.hist = []
+            st.session_state.conversation_turns = []
+            st.session_state.favorites = []
+            st.rerun()
+
+    # 按时间倒序显示历史记录（保留原始索引用于回调）
+    indexed_hist = list(enumerate(hist))
+    sorted_hist = sorted(
+        indexed_hist,
+        key=lambda x: x[1].get("time", ""),
+        reverse=True,
+    )
+
+    for orig_idx, item in sorted_hist:
+        mode = item.get("mode", "问答")
+        mode_icon = _MODE_ICONS.get(mode, "💬")
+        time_str = item.get("time", "")
+        query = item.get("q", "")
+
+        col_time, col_mode, col_query, col_act = st.columns([2, 1.5, 5, 1.5])
+        with col_time:
+            st.caption(time_str)
+        with col_mode:
+            st.caption(f"{mode_icon} {mode}")
+        with col_query:
+            st.markdown(
+                f"<span class='hist-query'>{_esc(query[:80])}</span>",
+                unsafe_allow_html=True,
+            )
+        with col_act:
+            c_resend, c_del = st.columns(2)
+            with c_resend:
+                st.button(
+                    "🔄", key=f"hist_resend_{orig_idx}",
+                    help=t("history_resend"),
+                    on_click=_resend_search, args=(orig_idx,),
+                )
+            with c_del:
+                st.button(
+                    "🗑️", key=f"hist_del_{orig_idx}",
+                    help=t("history_delete"),
+                    on_click=_delete_history_item, args=(orig_idx,),
+                )
+
+    # 重新搜索提示（pending_search 未被对应模式消费时显示并清除，防重复触发）
+    pending = st.session_state.pop("pending_search", None)
+    if pending:
+        pending_mode = pending.get("mode", "问答")
+        st.info(t("history_resend_hint").format(mode=pending_mode))

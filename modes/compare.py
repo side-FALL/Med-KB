@@ -4,6 +4,7 @@
 """
 
 import logging
+from datetime import datetime
 
 import streamlit as st
 
@@ -14,6 +15,7 @@ from ui_components import (
     render_user_bubble, render_ai_bubble, render_empty_state,
 )
 from llm_utils import COMPARE_SYSTEM_PROMPT, build_compare_message, call_llm_stream
+from settings_components import consume_pending_search
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,17 @@ def render(
     """渲染对比学习模式界面。"""
     st.markdown("输入两个需要对比的医学概念，系统检索后生成结构化对比表。")
 
+    # 检测设置页「重新搜索」触发的待搜索请求
+    pending_q = consume_pending_search("对比")
+    pending_trigger = False
+    if pending_q:
+        raw = pending_q.replace("[对比] ", "")
+        if " vs " in raw:
+            a, b = raw.split(" vs ", 1)
+            st.session_state["cmp_a"] = a.strip()
+            st.session_state["cmp_b"] = b.strip()
+            pending_trigger = True
+
     col_a, col_b = st.columns(2)
     with col_a:
         concept_a = st.text_input("概念A", placeholder="如：青霉素", label_visibility="collapsed", key="cmp_a")
@@ -57,7 +70,7 @@ def render(
 
     cmp_btn = st.button("🔄 开始对比", type="primary", use_container_width=True, key="cmp_btn")
 
-    if cmp_btn and concept_a.strip() and concept_b.strip():
+    if (cmp_btn or pending_trigger) and concept_a.strip() and concept_b.strip():
         # 从 session_state 实时读取 top_k/alpha，确保设置页修改立即生效
         current_top_k = st.session_state.get("top_k", top_k)
         current_alpha = st.session_state.get("alpha", alpha)
@@ -90,7 +103,7 @@ def render(
                 cmp_placeholder.markdown(fix_latex_formulas(cmp_ans))
 
             all_hits = (hits_a or []) + (hits_b or [])
-            st.session_state.hist.append({"q": f"[对比] {concept_a} vs {concept_b}", "hits": all_hits, "a": cmp_ans, "model": MODELS[selected_model]["name"], "mode": "对比"})
+            st.session_state.hist.append({"q": f"[对比] {concept_a} vs {concept_b}", "hits": all_hits, "a": cmp_ans, "model": MODELS[selected_model]["name"], "mode": "对比", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
             # 记录学习行为
             _record_learning(f"{concept_a} vs {concept_b}", topic=f"{concept_a} vs {concept_b}")
