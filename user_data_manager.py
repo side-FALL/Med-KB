@@ -1078,6 +1078,38 @@ class UserDataManager:
             "user_count": user_count,
         }
 
+    def get_operation_logs(self) -> list[dict]:
+        """获取所有操作日志（供管理面板趋势分析使用）。
+
+        操作日志存储在根数据的 logs.operation_logs 中，上限 MAX_OPERATION_LOGS 条。
+        每条包含 timestamp、username、action、detail、ip_address。
+
+        Returns:
+            操作日志列表（深拷贝，调用方可安全修改）
+        """
+        root = self._ensure_initialized()
+        logs = root.get("logs", {})
+        return deepcopy(logs.get("operation_logs", []))
+
+    def get_all_learning_records(self) -> list[dict]:
+        """聚合所有用户的学习记录（供管理面板模式使用分析使用）。
+
+        遍历所有用户，收集其 learning_records 并附加 username 字段。
+        每条包含 username、topic、query、timestamp、source_type、duration_seconds。
+
+        Returns:
+            学习记录列表（深拷贝）
+        """
+        root = self._ensure_initialized()
+        users = root.get("users", {})
+        records = []
+        for username, user_data in users.items():
+            for rec in user_data.get("learning_records", []):
+                entry = deepcopy(rec)
+                entry["username"] = username
+                records.append(entry)
+        return records
+
     def batch_update_active(self, usernames: list[str]) -> dict:
         """批量更新用户活跃时间。
 
