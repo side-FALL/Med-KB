@@ -27,6 +27,7 @@ from ui_components import (
 from settings_components import (
     t, ensure_pref_defaults, load_preferences_from_user_data,
     render_user_info_section, render_preferences_section,
+    render_retrieval_settings_section,
     render_textbook_management_section, render_search_history_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
@@ -192,20 +193,9 @@ with mode[5]:
 
     st.divider()
 
-    # 检索设置
-    st.markdown(f"#### {t('retrieval_title')}")
-    top_k = st.slider(t("top_k_label"), 3, 15, st.session_state.get("top_k", 10),
-        help=t("top_k_help"), key="top_k_slider")
-    alpha = st.slider(t("alpha_label"), 0.0, 1.0, st.session_state.get("alpha", 0.7),
-        help=t("alpha_help"), key="alpha_slider")
-    use_context = st.checkbox(t("use_context_label"),
-        value=st.session_state.get("use_context", True),
-        help=t("use_context_help"), key="use_context_cb")
-
-    # 更新session_state
-    st.session_state["top_k"] = top_k
-    st.session_state["alpha"] = alpha
-    st.session_state["use_context"] = use_context
+    # 检索设置（教材范围 + 检索模型 + 返回结果数/向量权重/多轮对话）
+    # 与主界面双向同步：通过 on_change 回调 + session_state 共享
+    render_retrieval_settings_section(book_count, book_stats, ALL_BOOKS)
 
     st.divider()
 

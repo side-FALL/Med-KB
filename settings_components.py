@@ -77,6 +77,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pref_save_failed": "⚠️ 偏好保存失败，仅本次会话生效",
         # 检索设置
         "retrieval_title": "🔍 检索设置",
+        "scope_label": "教材范围",
+        "scope_all": "全部教材",
+        "scope_select": "选择教材",
+        "scope_select_hint": "已切换为「选择教材」模式，请在下方「教材管理」或主界面中选择具体教材",
+        "scope_selected_summary": "已选 {n}/{total} 本 · {chunks:,} 个文本块",
+        "model_label": "检索模型",
+        "model_free_hint": "🆓 免费模型 · 请求过多会限制，如遇报错请切换其他模型",
+        "model_paid_hint": "🔒 付费模型 · 需在主界面验证密码后使用",
         "top_k_label": "返回结果数",
         "top_k_help": "每次检索返回的相关文本块数量",
         "alpha_label": "向量权重 (α)",
@@ -165,6 +173,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pref_save_failed": "⚠️ Save failed; effective for this session only",
         # Retrieval
         "retrieval_title": "🔍 Retrieval Settings",
+        "scope_label": "Textbook Scope",
+        "scope_all": "All textbooks",
+        "scope_select": "Select textbooks",
+        "scope_select_hint": "Switched to \"Select textbooks\" mode - pick specific books in \"Textbook Management\" below or on the main page",
+        "scope_selected_summary": "{n}/{total} books selected · {chunks:,} chunks",
+        "model_label": "Retrieval Model",
+        "model_free_hint": "🆓 Free model · rate-limited, switch models if errors occur",
+        "model_paid_hint": "🔒 Paid model · password verification required on the main page",
         "top_k_label": "Results Count",
         "top_k_help": "Number of relevant text chunks returned per retrieval",
         "alpha_label": "Vector Weight (α)",
@@ -574,6 +590,108 @@ def _on_font_change() -> None:
 def _on_display_name_change() -> None:
     st.session_state["pref_display_name"] = st.session_state["pref_display_name_input"]
     _persist_preferences()
+
+
+# ── 检索设置（教材范围 + 检索模型 + 检索参数）──────────────
+
+def _on_settings_scope_change() -> None:
+    """设置页教材范围变更回调：同步到主界面 canonical key。"""
+    st.session_state["scope_selector"] = st.session_state["settings_scope_sel"]
+
+
+def _on_settings_model_change() -> None:
+    """设置页检索模型变更回调：同步到主界面 canonical key。"""
+    st.session_state["model_selector"] = st.session_state["settings_model_sel"]
+
+
+def render_retrieval_settings_section(book_count: int, book_stats: dict, ALL_BOOKS: list[str]) -> None:
+    """渲染检索设置：教材范围、检索模型、返回结果数、向量权重、多轮对话。
+
+    教材范围和检索模型与主界面双向同步：
+    - 设置页 widget（settings_scope_sel / settings_model_sel）通过 on_change 回调
+      写入主界面的 canonical key（scope_selector / model_selector）
+    - 主界面 widget 的 on_change 回调反向同步到设置页 widget key
+    - session_state 共享保证两端始终一致
+
+    Widget 全部使用 explicit key，与现有模式一致。
+    """
+    from config import MODELS, is_model_free
+
+    st.markdown(f"#### {t('retrieval_title')}")
+
+    # 初始化 settings widget key（从 canonical state 恢复，仅首次）
+    if "settings_scope_sel" not in st.session_state:
+        st.session_state["settings_scope_sel"] = st.session_state.get(
+            "scope_selector", "全部教材"
+        )
+    if "settings_model_sel" not in st.session_state:
+        st.session_state["settings_model_sel"] = st.session_state.get(
+            "model_selector", list(MODELS.keys())[0]
+        )
+
+    # 教材范围 + 检索模型
+    col_scope, col_model = st.columns([3, 2])
+    with col_scope:
+        scope_labels = {"全部教材": t("scope_all"), "选择教材": t("scope_select")}
+        st.selectbox(
+            t("scope_label"),
+            ["全部教材", "选择教材"],
+            format_func=lambda v: scope_labels[v],
+            key="settings_scope_sel",
+            on_change=_on_settings_scope_change,
+        )
+    with col_model:
+        model_keys = list(MODELS.keys())
+        st.selectbox(
+            t("model_label"),
+            model_keys,
+            format_func=lambda x: f"{MODELS[x]['name']} {'🆓' if is_model_free(x) else '🔒'}",
+            key="settings_model_sel",
+            on_change=_on_settings_model_change,
+        )
+
+    # 模型信息提示
+    _sel_model = st.session_state.get("settings_model_sel", model_keys[0])
+    if is_model_free(_sel_model):
+        st.caption(t("model_free_hint"))
+    else:
+        st.caption(t("model_paid_hint"))
+
+    # 选择教材模式：显示已选状态或提示
+    if st.session_state.get("settings_scope_sel") == "选择教材":
+        selected = [
+            b for b in (st.session_state.get("selected_books") or [])
+            if b in book_stats
+        ]
+        if selected:
+            n = sum(book_stats.get(b, 0) for b in selected)
+            st.caption(
+                t("scope_selected_summary").format(
+                    n=len(selected), total=book_count, chunks=n
+                )
+            )
+        else:
+            st.warning(t("scope_select_hint"))
+
+    # 检索参数（返回结果数 / 向量权重 / 多轮对话）
+    st.slider(
+        t("top_k_label"), 3, 15, st.session_state.get("top_k", 10),
+        help=t("top_k_help"), key="top_k_slider",
+    )
+    st.slider(
+        t("alpha_label"), 0.0, 1.0, st.session_state.get("alpha", 0.7),
+        help=t("alpha_help"), key="alpha_slider",
+    )
+    st.checkbox(
+        t("use_context_label"),
+        value=st.session_state.get("use_context", True),
+        help=t("use_context_help"), key="use_context_cb",
+    )
+
+    # 同步到 canonical session_state（供脚本顶部和各模式读取）
+    st.session_state["top_k"] = st.session_state["top_k_slider"]
+    st.session_state["alpha"] = st.session_state["alpha_slider"]
+    st.session_state["use_context"] = st.session_state["use_context_cb"]
 
 
 # ── 教材管理 ─────────────────────────────────────────────

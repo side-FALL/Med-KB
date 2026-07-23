@@ -200,6 +200,16 @@ def render_sidebar(book_count: int, total_chunks: int):
 
 # ── 教材范围与模型选择 ──────────────────────────────────
 
+def _sync_scope_to_settings() -> None:
+    """主界面教材范围变更时，同步到设置页 widget 状态（双向同步）。"""
+    st.session_state["settings_scope_sel"] = st.session_state["scope_selector"]
+
+
+def _sync_model_to_settings() -> None:
+    """主界面模型变更时，同步到设置页 widget 状态（双向同步）。"""
+    st.session_state["settings_model_sel"] = st.session_state["model_selector"]
+
+
 def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS: list[str]):
     """渲染教材范围选择器和模型选择器。
 
@@ -208,7 +218,8 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
     """
     col_scope, col_model = st.columns([3, 1])
     with col_scope:
-        scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed", key="scope_selector")
+        scope = st.selectbox("📚 教材范围", ["全部教材", "选择教材"], label_visibility="collapsed", key="scope_selector",
+                             on_change=_sync_scope_to_settings)
 
     # 切换到"选择教材"时重置选择，确保初始状态为空
     if st.session_state.get("_prev_scope") != scope:
@@ -217,7 +228,8 @@ def render_scope_and_model_selector(book_count: int, book_stats: dict, ALL_BOOKS
         st.session_state._prev_scope = scope
     with col_model:
         selected_model = st.selectbox("🤖 AI模型", list(MODELS.keys()),
-            format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed", key="model_selector")
+            format_func=lambda x: MODELS[x]["name"], label_visibility="collapsed", key="model_selector",
+            on_change=_sync_model_to_settings)
 
     # 模型信息提示
     _current_model = MODELS[selected_model]
