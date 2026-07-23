@@ -29,6 +29,7 @@ from settings_components import (
     render_user_info_section, render_preferences_section,
     render_retrieval_settings_section,
     render_textbook_management_section, render_search_history_section,
+    render_learning_stats_section, render_data_management_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
@@ -209,15 +210,13 @@ with mode[5]:
 
     st.divider()
 
-    # 统计信息
-    st.markdown(f"#### {t('kb_stats_title')}")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(t("kb_books"), f"{book_count} 本" if st.session_state.get("pref_language") == "zh-CN" else f"{book_count}")
-    with col2:
-        st.metric(t("kb_chunks"), f"{total_chunks:,}")
-    with col3:
-        st.metric(t("kb_embed"), "BGE-M3")
+    # 学习统计（查询趋势折线图、模式分布柱状图）
+    render_learning_stats_section()
+
+    st.divider()
+
+    # 数据管理（导出学习记录、导出收藏、备份恢复）
+    render_data_management_section(book_stats)
 
     st.divider()
 
