@@ -119,20 +119,9 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
         # 用户快捷操作
-        col_logout, col_prefs = st.columns(2)
-        with col_logout:
-            if st.button("🚪 退出登录", use_container_width=True, key="sidebar_logout"):
-                logout()
-                st.rerun()
-        with col_prefs:
-            if st.button("⚙️ 设置", use_container_width=True, key="sidebar_prefs"):
-                st.info("个人设置功能开发中...")
-
-        # 管理员入口（仅 admin 角色可见，普通用户和游客完全看不到）
-        if is_admin():
-            if st.button("🔧 管理面板", use_container_width=True, key="sidebar_admin"):
-                st.session_state["view"] = "admin"
-                st.rerun()
+        if st.button("🚪 退出登录", use_container_width=True, key="sidebar_logout"):
+            logout()
+            st.rerun()
     else:
         # 游客模式
         st.markdown(f"""
@@ -204,8 +193,8 @@ scope, selected_model, selected_books = render_scope_and_model_selector(
 )
 
 # ── 模式切换 ────────────────────────────────────────────
-# 管理员可见管理面板标签页
-tabs_list = ["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式"]
+# 所有用户可见设置标签页，管理员额外可见管理面板标签页
+tabs_list = ["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式", "⚙️ 设置"]
 if is_admin():
     tabs_list.append("🔧 管理面板")
 mode = st.tabs(tabs_list)
@@ -239,9 +228,41 @@ with mode[4]:
     from modes.agent import render as render_agent
     render_agent(ALL_BOOKS, book_count, scope, selected_model, selected_books)
 
-# ── 模式六：管理面板（仅管理员可见）──────────────────────
+# ── 模式六：设置 ────────────────────────────────────────
+with mode[5]:
+    st.markdown("### ⚙️ 个人设置")
+
+    # 用户信息
+    if auth_mode != "guest":
+        user_data = st.session_state.get("user_data", {})
+        profile = user_data.get("profile", {})
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**用户名：** {profile.get('username', 'N/A')}")
+            st.markdown(f"**显示名称：** {profile.get('display_name', 'N/A')}")
+            st.markdown(f"**角色：** {profile.get('role', 'user')}")
+        with col2:
+            st.markdown(f"**登录次数：** {user_data.get('stats', {}).get('login_count', 0)}")
+            st.markdown(f"**查询次数：** {user_data.get('stats', {}).get('total_queries', 0)}")
+
+        st.divider()
+
+    # 检索设置
+    st.markdown("#### 🔍 检索设置")
+    st.info("检索设置已移至侧边栏，请点击左上角 `>` 箭头展开侧边栏进行设置。")
+
+    # 关于
+    st.divider()
+    st.markdown("#### ℹ️ 关于")
+    from __init__ import __version__
+    st.markdown(f"**版本：** {__version__}")
+    st.markdown("**项目：** 医学教材知识库")
+    st.markdown("**说明：** AI 驱动的医学知识检索与学习平台")
+
+# ── 模式七：管理面板（仅管理员可见）──────────────────────
 if is_admin():
-    with mode[5]:
+    with mode[6]:
         from admin_panel import render_admin_panel
         manager = get_data_manager()
         render_admin_panel(manager)
