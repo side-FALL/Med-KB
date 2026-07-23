@@ -657,14 +657,14 @@ class TestStandard4AdminPanelData(unittest.TestCase):
             mock_auth_st.session_state = _make_admin_session_state(role="admin")
             render_admin_panel(self.manager)
 
-        # st.metric 被调用 3 次（总用户数、总查询次数、管理员数量）
-        self.assertEqual(mock_panel_st.metric.call_count, 3)
+        # st.metric 被调用 6 次（总用户数、总查询次数、管理员数量 + 今日/本周/本月活跃）
+        self.assertEqual(mock_panel_st.metric.call_count, 6)
 
-        # st.table 被调用 1 次（用户列表）
-        mock_panel_st.table.assert_called_once()
+        # st.table 至少被调用 1 次（用户列表；新增的系统配置/API Key 状态表为额外调用）
+        self.assertGreaterEqual(mock_panel_st.table.call_count, 1)
 
-        # st.caption 被调用（角色分布摘要）
-        mock_panel_st.caption.assert_called_once()
+        # st.caption 至少被调用 1 次（角色分布摘要；新增的趋势图空数据提示为额外调用）
+        self.assertGreaterEqual(mock_panel_st.caption.call_count, 1)
 
     def test_4_12_admin_panel_stats_match_data(self):
         """render_admin_panel 渲染的统计指标值与实际数据一致。"""
@@ -696,9 +696,12 @@ class TestStandard4AdminPanelData(unittest.TestCase):
             mock_auth_st.session_state = _make_admin_session_state(role="admin")
             render_admin_panel(self.manager)
 
-        # st.table 接收一个字典，其中 "用户名" 列应包含所有用户
-        table_arg = mock_panel_st.table.call_args[0][0]
-        usernames = table_arg["用户名"]
+        # 用户列表改用 st.dataframe（支持排序、筛选交互）
+        # 从所有 dataframe 调用中找到包含 "用户名" 列的 DataFrame
+        df_args = [call[0][0] for call in mock_panel_st.dataframe.call_args_list]
+        user_dfs = [df for df in df_args if "用户名" in df.columns]
+        self.assertEqual(len(user_dfs), 1)
+        usernames = list(user_dfs[0]["用户名"])
         self.assertEqual(len(usernames), 5)
         for name in self.admin_names + self.user_names:
             self.assertIn(name, usernames)
@@ -714,10 +717,17 @@ class TestStandard4AdminPanelData(unittest.TestCase):
             mock_auth_st.session_state = _make_admin_session_state(role="admin")
             render_admin_panel(self.manager)
 
-        caption_text = mock_panel_st.caption.call_args[0][0]
-        self.assertIn("5", caption_text)       # 共 5 位用户
-        self.assertIn("2", caption_text)       # 管理员 2 人
-        self.assertIn("3", caption_text)       # 普通用户 3 人
+        # 从所有 caption 调用中找到角色分布摘要（含"管理员"关键词）
+        caption_texts = [call[0][0] for call in mock_panel_st.caption.call_args_list]
+        role_caption = None
+        for text in caption_texts:
+            if "管理员" in text and "人" in text:
+                role_caption = text
+                break
+        self.assertIsNotNone(role_caption, "未找到角色分布摘要 caption")
+        self.assertIn("5", role_caption)       # 共 5 位用户
+        self.assertIn("2", role_caption)       # 管理员 2 人
+        self.assertIn("3", role_caption)       # 普通用户 3 人
 
 
 # ═══════════════════════════════════════════════════════════════════

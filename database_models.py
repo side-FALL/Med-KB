@@ -71,7 +71,11 @@ ISO_DATETIME_PATTERN = re.compile(
 VALID_SOURCE_TYPES = ("textbook", "search", "chat", "qa", "quiz", "compare", "case", "agent")
 """学习记录来源类型白名单。"""
 
-VALID_ACTIONS = ("login", "logout", "register", "search", "query", "update_prefs")
+VALID_ACTIONS = (
+    "login", "logout", "register", "search", "query", "update_prefs",
+    "change_role", "reset_password", "delete_user",
+    "disable_user", "enable_user",
+)
 """操作日志动作类型白名单。"""
 
 VALID_ERROR_TYPES = ("validation", "auth", "network", "internal")
@@ -908,6 +912,7 @@ def add_operation_log(
     username: str = "",
     detail: str = "",
     ip_address: str = "",
+    extra_data: Optional[dict] = None,
 ) -> dict:
     """向日志数据中添加一条操作日志。
 
@@ -917,6 +922,7 @@ def add_operation_log(
         username: 操作用户
         detail: 操作详情
         ip_address: 来源 IP
+        extra_data: 扩展数据（如管理员操作的 target 目标用户）
 
     Returns:
         更新后的日志数据字典
@@ -927,7 +933,7 @@ def add_operation_log(
         "action": action,
         "detail": detail,
         "ip_address": ip_address,
-        "extra_data": {},
+        "extra_data": extra_data or {},
     }
     op = OperationLog(**{
         k: v for k, v in entry.items()
