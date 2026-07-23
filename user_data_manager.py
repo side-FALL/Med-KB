@@ -590,6 +590,151 @@ class UserDataManager:
             self._save_root(root)
             logger.info("用户删除成功: %s", username)
 
+    # ── 管理员操作 ──────────────────────────────────────────
+
+    def change_role(
+        self, username: str, new_role: str, operator: Optional[str] = None,
+    ) -> dict:
+        """管理员变更用户角色。
+
+        安全规则（角色不可变性守卫）：
+        - 不允许将用户提升为 admin（防提权攻击）
+        - 仅允许 admin -> user/guest 降级，或 user <-> guest 互转
+        - update_user 的通用路径拒绝 role 变更，此方法为受控专用接口
+
+        Args:
+            username: 目标用户名
+            new_role: 新角色（user / guest / admin）
+            operator: 操作者用户名（用于日志记录，默认取 current_user）
+
+        Returns:
+            更新后的用户数据字典
+
+        Raises:
+            UserNotFoundError: 用户不存在
+            ValidationError: 非法角色值
+            DataOperationError: 尝试提权为 admin 或操作失败
+        """
+        with self._lock:
+            root = self._ensure_initialized()
+            users = root.get("users", {})
+
+            if username not in users:
+                raise UserNotFoundError(f"用户 {username!r} 不存在")
+
+            if new_role not in self._VALID_ROLES:
+                raise ValidationError(
+                    "role",
+                    f"非法角色: {new_role!r}，允许值: {', '.join(sorted(self._VALID_ROLES))}",
+                )
+
+            # 防提权守卫：禁止通过管理面板将用户提升为 admin
+            if new_role == "admin":
+                raise DataOperationError(
+                    "安全限制：不允许通过管理面板将用户提升为管理员角色"
+                )
+
+            user_data = deepcopy(users[username])
+            current_role = user_data.get("profile", {}).get("role", "user")
+            user_data["profile"]["role"] = new_role
+            users[username] = user_data
+            root["users"] = users
+
+            operator_name = operator or self._current_user or "admin"
+            self._log_operation(
+                root, action="update_prefs", username=operator_name,
+                detail=f"角色变更: {username} ({current_role} -> {new_role})",
+            )
+
+            self._save_root(root)
+            logger.info("用户角色变更: %s %s -> %s (by %s)",
+                        username, current_role, new_role, operator_name)
+            return user_data
+
+    def reset_password(
+        self, username: str, new_password_hash: str,
+        operator: Optional[str] = None,
+    ) -> dict:
+        """管理员重置用户密码。
+
+        Args:
+            username: 目标用户名
+            new_password_hash: 新密码的哈希值（bcrypt 格式）
+            operator: 操作者用户名（用于日志记录）
+
+        Returns:
+            更新后的用户数据字典
+
+        Raises:
+            UserNotFoundError: 用户不存在
+            DataOperationError: 操作失败
+        """
+        with self._lock:
+            root = self._ensure_initialized()
+            users = root.get("users", {})
+
+            if username not in users:
+                raise UserNotFoundError(f"用户 {username!r} 不存在")
+
+            user_data = deepcopy(users[username])
+            user_data["profile"]["password_hash"] = new_password_hash
+            users[username] = user_data
+            root["users"] = users
+
+            operator_name = operator or self._current_user or "admin"
+            self._log_operation(
+                root, action="update_prefs", username=operator_name,
+                detail=f"密码重置: {username}",
+            )
+
+            self._save_root(root)
+            logger.info("用户密码重置: %s (by %s)", username, operator_name)
+            return user_data
+
+    def set_user_disabled(
+        self, username: str, disabled: bool,
+        operator: Optional[str] = None,
+    ) -> dict:
+        """管理员禁用/启用用户账户。
+
+        禁用的用户在登录时会被拒绝。禁用状态存储在 profile.disabled 字段。
+
+        Args:
+            username: 目标用户名
+            disabled: True 禁用 / False 启用
+            operator: 操作者用户名（用于日志记录）
+
+        Returns:
+            更新后的用户数据字典
+
+        Raises:
+            UserNotFoundError: 用户不存在
+            DataOperationError: 操作失败
+        """
+        with self._lock:
+            root = self._ensure_initialized()
+            users = root.get("users", {})
+
+            if username not in users:
+                raise UserNotFoundError(f"用户 {username!r} 不存在")
+
+            user_data = deepcopy(users[username])
+            user_data["profile"]["disabled"] = disabled
+            users[username] = user_data
+            root["users"] = users
+
+            operator_name = operator or self._current_user or "admin"
+            action_text = "禁用" if disabled else "启用"
+            self._log_operation(
+                root, action="update_prefs", username=operator_name,
+                detail=f"账户{action_text}: {username}",
+            )
+
+            self._save_root(root)
+            logger.info("用户账户%s: %s (by %s)",
+                        action_text, username, operator_name)
+            return user_data
+
     # ── 学习记录操作 ──────────────────────────────────────
 
     def add_learning_record(
@@ -884,12 +1029,16 @@ class UserDataManager:
 
         for username, user_data in users.items():
             profile = user_data.get("profile", {})
+            stats = user_data.get("stats", {})
             size_info = estimate_user_data_size(user_data)
             result.append({
                 "username": username,
                 "role": profile.get("role", "user"),
+                "email": profile.get("email", ""),
                 "created_at": profile.get("created_at", ""),
                 "last_active_at": profile.get("last_active_at", ""),
+                "login_count": stats.get("login_count", 0),
+                "disabled": profile.get("disabled", False),
                 "data_size_bytes": size_info["total_bytes"],
                 "data_size_kb": size_info["total_kb"],
             })
