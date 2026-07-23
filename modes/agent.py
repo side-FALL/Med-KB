@@ -7,12 +7,14 @@
 """
 
 import logging
+from datetime import datetime
 
 import streamlit as st
 
 from config import MODELS, get_model_api_config
 from ui_components import fix_latex_formulas
 from agent_lite import run_agent, run_agent_stream
+from settings_components import consume_pending_search
 
 # 导入工具层的教材选择函数
 try:
@@ -116,6 +118,21 @@ def render(
             scope, selected_model, selected_books,
         )
 
+    # 检测设置页「重新搜索」触发的待搜索请求
+    pending_q = consume_pending_search("智能体")
+    if pending_q:
+        # 去掉存储时添加的「[智能体]」前缀
+        pending_q = pending_q.replace("[智能体] ", "").strip()
+        if pending_q:
+            current_top_k = st.session_state.get("top_k", top_k)
+            current_alpha = st.session_state.get("alpha", alpha)
+            _process_agent_query(
+                pending_q,
+                ALL_BOOKS, book_count,
+                current_top_k, current_alpha,
+                scope, selected_model, selected_books,
+            )
+
 
 def _process_agent_query(
     query: str,
@@ -203,7 +220,8 @@ def _process_agent_query(
                     "hits": [],
                     "a": final_answer,
                     "model": MODELS[selected_model]["name"],
-                    "mode": "智能体"
+                    "mode": "智能体",
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 })
 
                 # 记录学习行为（每轮对话完成时记录一次）
@@ -234,7 +252,8 @@ def _process_agent_query(
                 "hits": [],
                 "a": result.get("output", ""),
                 "model": MODELS[selected_model]["name"],
-                "mode": "智能体"
+                "mode": "智能体",
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             })
 
             # 记录学习行为（每轮对话完成时记录一次）

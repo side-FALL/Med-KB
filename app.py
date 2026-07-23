@@ -27,7 +27,7 @@ from ui_components import (
 from settings_components import (
     t, ensure_pref_defaults, load_preferences_from_user_data,
     render_user_info_section, render_preferences_section,
-    render_textbook_management_section,
+    render_textbook_management_section, render_search_history_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
@@ -214,20 +214,8 @@ with mode[5]:
 
     st.divider()
 
-    # 搜索历史
-    st.markdown(f"#### {t('history_title')}")
-    if st.session_state.hist:
-        for i, item in enumerate(reversed(st.session_state.hist[-10:])):
-            mode_icon = {"问答":"💬","刷题":"📝","对比":"🔄","病例":"🏥","智能体":"🤖"}.get(item.get("mode","问答"),"💬")
-            st.markdown(f"{mode_icon} {item.get('q', '')[:50]}")
-    else:
-        st.info(t("history_empty"))
-
-    if st.button(t("history_clear"), use_container_width=True, key="settings_clear_hist"):
-        st.session_state.hist = []
-        st.session_state.conversation_turns = []
-        st.session_state.favorites = []
-        st.rerun()
+    # 搜索历史（重新搜索、删除单条、导出 CSV/JSON）
+    render_search_history_section()
 
     st.divider()
 

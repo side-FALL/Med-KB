@@ -4,6 +4,7 @@
 """
 
 import logging
+from datetime import datetime
 
 import streamlit as st
 
@@ -14,6 +15,7 @@ from ui_components import (
     render_user_bubble, render_ai_bubble, render_empty_state,
 )
 from llm_utils import CASE_SYSTEM_PROMPT, build_case_message, call_llm_stream
+from settings_components import consume_pending_search
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +51,20 @@ def render(
     """渲染病例分析模式界面。"""
     st.markdown("输入病例描述，系统按临床推理流程分步分析。")
 
+    # 检测设置页「重新搜索」触发的待搜索请求
+    pending_q = consume_pending_search("病例")
+    pending_trigger = False
+    if pending_q:
+        raw = pending_q.replace("[病例] ", "").rstrip("…")
+        st.session_state["case_desc"] = raw
+        pending_trigger = True
+
     case_desc = st.text_area("病例描述",
         placeholder="如：患者男，65岁，反复胸闷气促2年，加重伴双下肢水肿1周…",
         height=100, label_visibility="collapsed", key="case_desc")
     case_btn = st.button("🏥 开始分析", type="primary", use_container_width=True, key="case_btn")
 
-    if case_btn and case_desc.strip():
+    if (case_btn or pending_trigger) and case_desc.strip():
         # 从 session_state 实时读取 top_k/alpha，确保设置页修改立即生效
         current_top_k = st.session_state.get("top_k", top_k)
         current_alpha = st.session_state.get("alpha", alpha)
@@ -85,7 +95,7 @@ def render(
                 case_ans += chunk
                 case_placeholder.markdown(fix_latex_formulas(case_ans))
 
-            st.session_state.hist.append({"q": f"[病例] {case_desc.strip()[:50]}…", "hits": hits, "a": case_ans, "model": MODELS[selected_model]["name"], "mode": "病例"})
+            st.session_state.hist.append({"q": f"[病例] {case_desc.strip()[:50]}…", "hits": hits, "a": case_ans, "model": MODELS[selected_model]["name"], "mode": "病例", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
             # 记录学习行为
             _record_learning(case_desc.strip(), topic="病例分析")
