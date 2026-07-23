@@ -122,6 +122,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_query": "查询内容",
         "history_model_col": "模型",
         "history_resend_hint": "已触发重新搜索，请切换到「{mode}」标签页查看结果",
+        # 学习统计
+        "ls_title": "📊 学习统计",
+        "ls_empty": "暂无学习数据，开始使用后这里会展示统计图表",
+        "ls_total": "总查询",
+        "ls_today": "今日",
+        "ls_modes": "使用模式",
+        "ls_trend": "查询趋势",
+        "ls_trend_help": "按天统计的查询次数变化",
+        "ls_dist": "模式分布",
+        "ls_dist_help": "各功能模式的使用占比",
+        "ls_records": "学习记录",
+        "ls_favorites": "收藏教材",
+        # 数据管理
+        "dm_title": "💾 数据管理",
+        "dm_export_records": "导出学习记录",
+        "dm_export_records_csv": "📥 学习记录 CSV",
+        "dm_export_records_json": "📥 学习记录 JSON",
+        "dm_export_fav": "导出收藏教材",
+        "dm_export_fav_csv": "📥 收藏教材 CSV",
+        "dm_export_fav_json": "📥 收藏教材 JSON",
+        "dm_backup": "数据备份",
+        "dm_backup_btn": "📤 导出全部数据",
+        "dm_backup_help": "导出你的所有设置和数据为 JSON 文件，可用于备份或迁移",
+        "dm_restore": "数据恢复",
+        "dm_restore_help": "导入之前导出的备份文件，恢复偏好设置和收藏教材",
+        "dm_restore_success": "✅ 数据恢复成功，偏好设置已更新",
+        "dm_restore_fail": "⚠️ 数据恢复失败：{error}",
+        "dm_restore_invalid": "⚠️ 文件格式不正确，请上传有效的备份文件",
+        "dm_guest_hint": "游客模式数据仅本次会话有效，导出的备份文件可在登录后恢复",
+        "dm_book_col": "教材名称",
+        "dm_added_at_col": "收藏时间",
         # 统计
         "kb_stats_title": "📊 知识库统计",
         "kb_books": "教材数量",
@@ -218,6 +249,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_query": "Query",
         "history_model_col": "Model",
         "history_resend_hint": "Search triggered — switch to the \"{mode}\" tab to see results",
+        # Learning stats
+        "ls_title": "📊 Learning Statistics",
+        "ls_empty": "No learning data yet. Charts will appear here after you start using the app.",
+        "ls_total": "Total queries",
+        "ls_today": "Today",
+        "ls_modes": "Modes used",
+        "ls_trend": "Query Trend",
+        "ls_trend_help": "Daily query count over time",
+        "ls_dist": "Mode Distribution",
+        "ls_dist_help": "Usage breakdown by feature mode",
+        "ls_records": "Learning Records",
+        "ls_favorites": "Favorites",
+        # Data management
+        "dm_title": "💾 Data Management",
+        "dm_export_records": "Export Learning Records",
+        "dm_export_records_csv": "📥 Records CSV",
+        "dm_export_records_json": "📥 Records JSON",
+        "dm_export_fav": "Export Favorites",
+        "dm_export_fav_csv": "📥 Favorites CSV",
+        "dm_export_fav_json": "📥 Favorites JSON",
+        "dm_backup": "Data Backup",
+        "dm_backup_btn": "📤 Export All Data",
+        "dm_backup_help": "Export all your settings and data as a JSON file for backup or migration",
+        "dm_restore": "Data Restore",
+        "dm_restore_help": "Import a previously exported backup file to restore preferences and favorites",
+        "dm_restore_success": "✅ Data restored successfully, preferences updated",
+        "dm_restore_fail": "⚠️ Data restore failed: {error}",
+        "dm_restore_invalid": "⚠️ Invalid file format, please upload a valid backup file",
+        "dm_guest_hint": "Guest data is session-only; exported backups can be restored after logging in",
+        "dm_book_col": "Textbook Name",
+        "dm_added_at_col": "Added",
         # Stats
         "kb_stats_title": "📊 Knowledge Base Stats",
         "kb_books": "Textbooks",
@@ -972,3 +1034,277 @@ def render_search_history_section() -> None:
     if pending:
         pending_mode = pending.get("mode", "问答")
         st.info(t("history_resend_hint").format(mode=pending_mode))
+
+
+# ── 学习统计 ─────────────────────────────────────────────
+
+def _parse_hist_date(time_str: str) -> str | None:
+    """从 hist 的 time 字段提取日期（YYYY-MM-DD），解析失败返回 None。
+
+    hist 中 time 格式为 "2026-07-23 15:30:00"（来自各 mode 的 datetime.now().strftime）。
+    """
+    if not time_str:
+        return None
+    try:
+        # hist time 格式："YYYY-MM-DD HH:MM:SS"
+        return datetime.strptime(time_str[:19], "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
+
+def render_learning_stats_section() -> None:
+    """渲染学习统计模块：查询趋势折线图 + 模式分布柱状图。
+
+    数据来源：session_state["hist"]（各模式查询时追加，含 time/mode/q 字段）。
+    图表使用 Streamlit 原生 st.line_chart / st.bar_chart（底层 pandas），
+    不引入 plotly 等额外重依赖。
+
+    空数据时显示提示信息，不渲染图表。
+    """
+    import pandas as pd
+
+    st.markdown(f"#### {t('ls_title')}")
+
+    hist = st.session_state.get("hist") or []
+    if not hist:
+        st.info(t("ls_empty"))
+        return
+
+    # 概览指标
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_count = sum(1 for h in hist if _parse_hist_date(h.get("time", "")) == today_str)
+    used_modes = len({h.get("mode", "") for h in hist})
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(t("ls_total"), len(hist))
+    with c2:
+        st.metric(t("ls_today"), today_count)
+    with c3:
+        st.metric(t("ls_modes"), used_modes)
+
+    # 查询趋势折线图：按天聚合查询次数
+    dates: list[str] = []
+    for h in hist:
+        d = _parse_hist_date(h.get("time", ""))
+        if d:
+            dates.append(d)
+    if dates:
+        df_trend = pd.DataFrame({"date": dates})
+        df_trend = df_trend.groupby("date").size().reset_index(name="count")
+        df_trend = df_trend.sort_values("date")
+        # 补齐缺失日期（避免折线图断点），仅在数据跨度内
+        if len(df_trend) > 1:
+            full_range = pd.date_range(
+                start=df_trend["date"].iloc[0],
+                end=df_trend["date"].iloc[-1],
+                freq="D",
+            ).strftime("%Y-%m-%d")
+            df_trend = df_trend.set_index("date").reindex(full_range, fill_value=0).reset_index()
+            df_trend.columns = ["date", "count"]
+        df_trend_chart = df_trend.set_index("date")
+        st.caption(f"**{t('ls_trend')}** — {t('ls_trend_help')}")
+        st.line_chart(df_trend_chart, use_container_width=True)
+
+    # 模式分布柱状图：各 mode 使用次数
+    mode_list = [h.get("mode", t("ls_modes")) for h in hist]
+    if mode_list:
+        df_dist = pd.Series(mode_list).value_counts().reset_index()
+        df_dist.columns = ["mode", "count"]
+        df_dist_chart = df_dist.set_index("mode")
+        st.caption(f"**{t('ls_dist')}** — {t('ls_dist_help')}")
+        st.bar_chart(df_dist_chart, use_container_width=True)
+
+
+# ── 数据管理 ─────────────────────────────────────────────
+
+def _build_favorites_csv(favorites: list, book_stats: dict | None = None) -> str:
+    """将收藏教材列表构建为 CSV 字符串（UTF-8 BOM 头确保 Excel 正确显示中文）。"""
+    output = io.StringIO()
+    output.write("\ufeff")  # UTF-8 BOM
+    writer = csv.writer(output)
+    writer.writerow([t("dm_book_col"), t("tm_chunks_unit")])
+    for book in favorites:
+        chunks = (book_stats or {}).get(book, 0)
+        writer.writerow([book, chunks])
+    return output.getvalue()
+
+
+def _build_backup_json() -> str:
+    """构建全量用户数据备份 JSON。
+
+    包含：偏好设置、收藏教材、搜索历史。
+    登录用户额外包含 user_data 快照中的 profile / stats / learning_records。
+    """
+    backup = {
+        "_type": "med-kb-backup",
+        "_version": "1.0",
+        "_exported_at": datetime.now(timezone.utc).isoformat(),
+        "preferences": {
+            "theme": st.session_state.get("pref_theme", "light"),
+            "language": st.session_state.get("pref_language", "zh-CN"),
+            "font_size": st.session_state.get("pref_font_size", 14),
+            "display_name": st.session_state.get("pref_display_name", ""),
+        },
+        "favorites": list(st.session_state.get("favorites") or []),
+        "search_history": list(st.session_state.get("hist") or []),
+    }
+
+    # 登录用户：附加服务端存储的 user_data
+    user_data = st.session_state.get("user_data")
+    if isinstance(user_data, dict) and st.session_state.get("auth_mode_type") != "guest":
+        backup["user_data"] = {
+            "profile": user_data.get("profile", {}),
+            "stats": user_data.get("stats", {}),
+            "learning_records": user_data.get("learning_records", []),
+            "preferences": user_data.get("preferences", {}),
+        }
+
+    return json.dumps(backup, ensure_ascii=False, indent=2)
+
+
+def _restore_from_backup(backup: dict) -> bool:
+    """从备份字典恢复偏好、收藏和历史到 session_state。
+
+    仅恢复客户端可安全写入的字段（偏好、收藏、搜索历史）。
+    登录用户额外持久化偏好到服务端（通过 _persist_preferences）。
+    不恢复 profile / stats / password（安全考虑）。
+
+    Returns:
+        True 表示恢复成功
+    """
+    # 偏好恢复
+    prefs = backup.get("preferences") or {}
+    if isinstance(prefs, dict):
+        if prefs.get("theme") in ("light", "dark"):
+            st.session_state["pref_theme"] = prefs["theme"]
+        if prefs.get("language") in TRANSLATIONS:
+            st.session_state["pref_language"] = prefs["language"]
+        fs = prefs.get("font_size")
+        if isinstance(fs, int) and 12 <= fs <= 20:
+            st.session_state["pref_font_size"] = fs
+        dn = prefs.get("display_name")
+        if isinstance(dn, str):
+            st.session_state["pref_display_name"] = dn
+
+    # 收藏教材恢复
+    favs = backup.get("favorites")
+    if isinstance(favs, list):
+        st.session_state["favorites"] = [f for f in favs if isinstance(f, str)]
+
+    # 搜索历史恢复
+    hist = backup.get("search_history")
+    if isinstance(hist, list):
+        st.session_state["hist"] = hist
+
+    # 清除偏好 widget key，使其在下次渲染时从恢复值重新初始化
+    _clear_pref_widget_keys()
+
+    # 登录用户：持久化偏好到服务端
+    if st.session_state.get("auth_mode_type") != "guest":
+        try:
+            _persist_preferences()
+        except Exception as exc:
+            logger.warning("恢复后偏好持久化失败: %s", exc)
+
+    return True
+
+
+def render_data_management_section(book_stats: dict) -> None:
+    """渲染数据管理模块：导出学习记录、导出收藏、数据备份与恢复。
+
+    - 导出学习记录：复用搜索历史的 CSV/JSON 构建（含 time/mode/q/model）
+    - 导出收藏教材：CSV（教材名+块数）/ JSON
+    - 数据备份：导出全量用户数据为 JSON
+    - 数据恢复：上传备份 JSON 文件恢复偏好和收藏
+    """
+    st.markdown(f"#### {t('dm_title')}")
+
+    is_guest = st.session_state.get("auth_mode_type") == "guest"
+    if is_guest:
+        st.info(t("dm_guest_hint"))
+
+    hist = st.session_state.get("hist") or []
+    favorites = _get_favorites()
+
+    # ── 导出学习记录 ──
+    st.caption(f"**{t('dm_export_records')}** ({len(hist)} {t('ls_records').lower() if hist else ''})")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            t("dm_export_records_csv"),
+            data=_build_history_csv(hist),
+            file_name="learning_records.csv",
+            mime="text/csv",
+            key="dm_export_records_csv",
+            use_container_width=True,
+            disabled=not hist,
+        )
+    with c2:
+        st.download_button(
+            t("dm_export_records_json"),
+            data=json.dumps(hist, ensure_ascii=False, indent=2),
+            file_name="learning_records.json",
+            mime="application/json",
+            key="dm_export_records_json",
+            use_container_width=True,
+            disabled=not hist,
+        )
+
+    # ── 导出收藏教材 ──
+    st.caption(f"**{t('dm_export_fav')}** ({len(favorites)} {t('ls_favorites').lower() if favorites else ''})")
+    c3, c4 = st.columns(2)
+    with c3:
+        st.download_button(
+            t("dm_export_fav_csv"),
+            data=_build_favorites_csv(favorites, book_stats),
+            file_name="favorites.csv",
+            mime="text/csv",
+            key="dm_export_fav_csv",
+            use_container_width=True,
+            disabled=not favorites,
+        )
+    with c4:
+        st.download_button(
+            t("dm_export_fav_json"),
+            data=json.dumps(favorites, ensure_ascii=False, indent=2),
+            file_name="favorites.json",
+            mime="application/json",
+            key="dm_export_fav_json",
+            use_container_width=True,
+            disabled=not favorites,
+        )
+
+    st.divider()
+
+    # ── 数据备份 ──
+    st.caption(f"**{t('dm_backup')}** — {t('dm_backup_help')}")
+    st.download_button(
+        t("dm_backup_btn"),
+        data=_build_backup_json(),
+        file_name=f"med-kb-backup-{datetime.now().strftime('%Y%m%d')}.json",
+        mime="application/json",
+        key="dm_backup_download",
+        use_container_width=True,
+    )
+
+    # ── 数据恢复 ──
+    st.caption(f"**{t('dm_restore')}** — {t('dm_restore_help')}")
+    uploaded = st.file_uploader(
+        t("dm_restore"),
+        type=["json"],
+        key="dm_restore_uploader",
+        label_visibility="collapsed",
+    )
+    if uploaded is not None:
+        try:
+            raw = uploaded.read()
+            backup = json.loads(raw)
+            if not isinstance(backup, dict) or backup.get("_type") != "med-kb-backup":
+                st.error(t("dm_restore_invalid"))
+            else:
+                _restore_from_backup(backup)
+                st.success(t("dm_restore_success"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            st.error(t("dm_restore_fail").format(error=str(exc)))
+        except Exception as exc:
+            st.error(t("dm_restore_fail").format(error=str(exc)))
