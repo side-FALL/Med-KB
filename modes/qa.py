@@ -102,10 +102,14 @@ def render(
 
     # ── 处理新输入 ────────────────────────────────────
     if user_input and user_input.strip():
+        # 从 session_state 实时读取 top_k/alpha/use_context，确保设置页修改立即生效
+        current_top_k = st.session_state.get("top_k", top_k)
+        current_alpha = st.session_state.get("alpha", alpha)
+        current_use_context = st.session_state.get("use_context", use_context)
         _process_query(
             user_input.strip(),
             manifest, ALL_BOOKS, book_count,
-            top_k, alpha, use_context,
+            current_top_k, current_alpha, current_use_context,
             scope, selected_model, selected_books,
             prompt_to_use,
         )
@@ -182,7 +186,7 @@ def _process_query(
             )
             if hits:
                 st.write(f"找到 {len(hits)} 条相关内容：")
-                for i, hit in enumerate(hits[:5], 1):
+                for i, hit in enumerate(hits, 1):
                     st.write(f"{i}. {hit['book']} — {hit['text'][:80]}...")
                 status.update(
                     label=f"✅ 找到 {len(hits)} 条相关内容",

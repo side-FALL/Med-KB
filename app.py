@@ -42,7 +42,7 @@ inject_global_styles()
 # ── 初始化会话状态 ──────────────────────────────────────
 _defaults = {
     "hist": [], "conversation_turns": [], "use_context": True,
-    "alpha": 0.7, "q": "", "favorites": [], "mode": "💬 智能问答",
+    "alpha": 0.7, "top_k": 10, "q": "", "favorites": [], "mode": "💬 智能问答",
     # 认证状态默认值
     "authenticated": False, "auth_username": "游客",
     "auth_mode_type": "guest", "auth_mode": "home",
@@ -164,7 +164,7 @@ with mode[3]:
 # ── 模式五：智能体模式（延迟导入）──────────────────────
 with mode[4]:
     from modes.agent import render as render_agent
-    render_agent(ALL_BOOKS, book_count, scope, selected_model, selected_books)
+    render_agent(ALL_BOOKS, book_count, top_k, alpha, scope, selected_model, selected_books)
 
 # ── 模式六：设置 ────────────────────────────────────────
 with mode[5]:
@@ -222,12 +222,12 @@ with mode[5]:
     # 检索设置
     st.markdown("#### 🔍 检索设置")
     top_k = st.slider("返回结果数", 3, 15, st.session_state.get("top_k", 10),
-        help="每次检索返回的相关文本块数量")
+        help="每次检索返回的相关文本块数量", key="top_k_slider")
     alpha = st.slider("向量权重 (α)", 0.0, 1.0, st.session_state.get("alpha", 0.7),
-        help="1.0=纯向量检索，0.0=纯关键词检索")
+        help="1.0=纯向量检索，0.0=纯关键词检索", key="alpha_slider")
     use_context = st.checkbox("启用多轮对话",
         value=st.session_state.get("use_context", True),
-        help="开启后AI会参考之前对话的上下文")
+        help="开启后AI会参考之前对话的上下文", key="use_context_cb")
 
     # 更新session_state
     st.session_state["top_k"] = top_k
