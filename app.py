@@ -85,77 +85,15 @@ CS_API_KEY = get_api_key("cherryin")
 if not CS_API_KEY:
     st.error("未配置 CS_API_KEY"); st.stop()
 
-# ── 侧边栏 ─────────────────────────────────────────────
-# 用户信息区域（已登录用户显示）
-with st.sidebar:
-    username = get_auth_username()
-    auth_mode = get_auth_mode()
+# ── 侧边栏已移除，设置功能移至主界面设置标签页 ───────────
+# 获取用户信息
+username = get_auth_username()
+auth_mode = get_auth_mode()
 
-    if auth_mode != "guest":
-        # 已注册用户
-        # 管理员徽章（仅 admin 角色显示）
-        admin_badge = ""
-        status_text = "已登录 · 数据已同步"
-        if is_admin():
-            admin_badge = (
-                ' <span style="font-size:0.68rem; background:#0D6EFD; color:#FFFFFF; '
-                'padding:2px 8px; border-radius:8px; font-weight:600;">管理员</span>'
-            )
-            status_text = "已登录 · 管理员"
-
-        st.markdown(f"""
-        <div style="background:linear-gradient(135deg, rgba(13,110,253,0.08) 0%, rgba(10,88,202,0.04) 100%);
-                    border-radius:12px; padding:0.8rem 1rem; margin-bottom:0.8rem;
-                    border:1px solid rgba(13,110,253,0.15);">
-            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
-                <span style="font-size:1.3rem;">👤</span>
-                <span style="font-weight:700; color:#0A58CA; font-size:0.95rem;">{username}</span>
-                {admin_badge}
-            </div>
-            <div style="font-size:0.78rem; color:#6C757D;">
-                {status_text}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # 用户快捷操作
-        if st.button("🚪 退出登录", use_container_width=True, key="sidebar_logout"):
-            logout()
-            st.rerun()
-    else:
-        # 游客模式
-        st.markdown(f"""
-        <div style="background:#FFF8E1; border-radius:12px; padding:0.8rem 1rem; margin-bottom:0.8rem;
-                    border:1px solid #FFE082;">
-            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
-                <span style="font-size:1.3rem;">👤</span>
-                <span style="font-weight:700; color:#F57F17; font-size:0.95rem;">游客模式</span>
-            </div>
-            <div style="font-size:0.78rem; color:#795548;">
-                数据不会保存 · 功能受限
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("📝 注册/登录", use_container_width=True, key="sidebar_login_btn"):
-            logout()
-            st.rerun()
-
-    st.divider()
-
-# 渲染主侧边栏（检索设置、对话设置、搜索历史等）
-top_k, alpha, use_context = render_sidebar(book_count, total_chunks)
-
-# ── 管理面板视图切换 ──────────────────────────────────
-# 安全守卫：非 admin 用户不应停留在管理面板视图
-if st.session_state.get("view") == "admin" and not is_admin():
-    st.session_state["view"] = "main"
-
-if st.session_state.get("view") == "admin" and is_admin():
-    from admin_panel import render_admin_panel
-    manager = get_data_manager()
-    render_admin_panel(manager)
-    st.stop()
+# 从session_state获取设置值（在设置页面中更新）
+top_k = st.session_state.get("top_k", 10)
+alpha = st.session_state.get("alpha", 0.7)
+use_context = st.session_state.get("use_context", True)
 
 # ── 主界面标题 ──────────────────────────────────────────
 st.markdown(f"""
@@ -237,23 +175,97 @@ with mode[5]:
         user_data = st.session_state.get("user_data", {})
         profile = user_data.get("profile", {})
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**用户名：** {profile.get('username', 'N/A')}")
-            st.markdown(f"**显示名称：** {profile.get('display_name', 'N/A')}")
-            st.markdown(f"**角色：** {profile.get('role', 'user')}")
-        with col2:
-            st.markdown(f"**登录次数：** {user_data.get('stats', {}).get('login_count', 0)}")
-            st.markdown(f"**查询次数：** {user_data.get('stats', {}).get('total_queries', 0)}")
+        # 用户信息卡片
+        admin_badge = ""
+        if is_admin():
+            admin_badge = ' <span style="font-size:0.68rem; background:#0D6EFD; color:#FFFFFF; padding:2px 8px; border-radius:8px; font-weight:600;">管理员</span>'
 
-        st.divider()
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg, rgba(13,110,253,0.08) 0%, rgba(10,88,202,0.04) 100%);
+                    border-radius:12px; padding:1rem; margin-bottom:1rem;
+                    border:1px solid rgba(13,110,253,0.15);">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                <span style="font-size:1.5rem;">👤</span>
+                <span style="font-weight:700; color:#0A58CA; font-size:1.1rem;">{profile.get('username', 'N/A')}</span>
+                {admin_badge}
+            </div>
+            <div style="display:flex; gap:2rem; color:#6C757D; font-size:0.85rem;">
+                <span>登录次数: {user_data.get('stats', {}).get('login_count', 0)}</span>
+                <span>查询次数: {user_data.get('stats', {}).get('total_queries', 0)}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 退出登录按钮
+        if st.button("🚪 退出登录", use_container_width=True, key="settings_logout"):
+            logout()
+            st.rerun()
+    else:
+        # 游客模式
+        st.markdown("""
+        <div style="background:#FFF8E1; border-radius:12px; padding:1rem; margin-bottom:1rem;
+                    border:1px solid #FFE082;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                <span style="font-size:1.5rem;">👤</span>
+                <span style="font-weight:700; color:#F57F17; font-size:1.1rem;">游客模式</span>
+            </div>
+            <div style="color:#795548; font-size:0.85rem;">数据不会保存 · 功能受限</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("📝 注册/登录", use_container_width=True, key="settings_login"):
+            logout()
+            st.rerun()
+
+    st.divider()
 
     # 检索设置
     st.markdown("#### 🔍 检索设置")
-    st.info("检索设置已移至侧边栏，请点击左上角 `>` 箭头展开侧边栏进行设置。")
+    top_k = st.slider("返回结果数", 3, 15, st.session_state.get("top_k", 10),
+        help="每次检索返回的相关文本块数量")
+    alpha = st.slider("向量权重 (α)", 0.0, 1.0, st.session_state.get("alpha", 0.7),
+        help="1.0=纯向量检索，0.0=纯关键词检索")
+    use_context = st.checkbox("启用多轮对话",
+        value=st.session_state.get("use_context", True),
+        help="开启后AI会参考之前对话的上下文")
+
+    # 更新session_state
+    st.session_state["top_k"] = top_k
+    st.session_state["alpha"] = alpha
+    st.session_state["use_context"] = use_context
+
+    st.divider()
+
+    # 搜索历史
+    st.markdown("#### 📜 搜索历史")
+    if st.session_state.hist:
+        for i, item in enumerate(reversed(st.session_state.hist[-10:])):
+            mode_icon = {"问答":"💬","刷题":"📝","对比":"🔄","病例":"🏥","智能体":"🤖"}.get(item.get("mode","问答"),"💬")
+            st.markdown(f"{mode_icon} {item.get('q', '')[:50]}")
+    else:
+        st.info("暂无搜索历史")
+
+    if st.button("🗑️ 清空全部记录", use_container_width=True):
+        st.session_state.hist = []
+        st.session_state.conversation_turns = []
+        st.session_state.favorites = []
+        st.rerun()
+
+    st.divider()
+
+    # 统计信息
+    st.markdown("#### 📊 知识库统计")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("教材数量", f"{book_count} 本")
+    with col2:
+        st.metric("文本块数", f"{total_chunks:,} 块")
+    with col3:
+        st.metric("嵌入模型", "BGE-M3")
+
+    st.divider()
 
     # 关于
-    st.divider()
     st.markdown("#### ℹ️ 关于")
     from __init__ import __version__
     st.markdown(f"**版本：** {__version__}")
