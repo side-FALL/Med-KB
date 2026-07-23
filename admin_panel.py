@@ -5,14 +5,17 @@
 
 功能：
 - 查看所有已注册用户列表（用户名、角色、注册时间等）
-- 查看系统统计（总用户数、总查询次数）
+- 查看系统统计（总用户数、总查询次数、活跃用户数）
+- 趋势分析（查询次数趋势图、用户增长趋势图）
+- 模式使用分布（各功能模式使用占比）
+- 系统配置（当前模型、API Key 状态、教材数量、存储后端状态）
 - 用户管理增强：角色变更、删除用户、重置密码、禁用/启用
 - 搜索、筛选、排序、分页
 
 数据来源：通过 UserDataManager 的现有方法获取，不直接操作数据库。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import streamlit as st
@@ -68,8 +71,21 @@ def _render_admin_header():
     """, unsafe_allow_html=True)
 
 
+def _parse_dt(iso_str: str):
+    """将 ISO 8601 字符串解析为 aware datetime，失败返回 None。"""
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def _render_system_stats(manager):
-    """渲染系统统计区域。
+    """渲染系统统计区域（含活跃用户指标）。
 
     Args:
         manager: UserDataManager 实例
@@ -89,6 +105,255 @@ def _render_system_stats(manager):
 
     except Exception as exc:
         st.error(f"加载统计数据失败: {exc}")
+        return
+
+    # ── 活跃用户统计（基于最后登录时间）──
+    st.markdown("##### 🔄 活跃用户")
+    try:
+        users = manager.list_users()
+    except Exception as exc:
+        st.warning(f"加载用户列表失败: {exc}")
+        return
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=7)
+    month_start = today_start - timedelta(days=30)
+
+    active_today = active_week = active_month = 0
+    for u in users:
+        last = _parse_dt(u.get("last_active_at", ""))
+        if last is None:
+            continue
+        if last >= today_start:
+            active_today += 1
+        if last >= week_start:
+            active_week += 1
+        if last >= month_start:
+            active_month += 1
+
+    ca1, ca2, ca3 = st.columns(3)
+    with ca1:
+        st.metric("今日活跃", active_today)
+    with ca2:
+        st.metric("本周活跃", active_week)
+    with ca3:
+        st.metric("本月活跃", active_month)
+
+
+def _render_trend_charts(manager):
+    """渲染查询趋势图和用户增长趋势图。
+
+    Args:
+        manager: UserDataManager 实例
+    """
+    st.subheader("📈 趋势分析")
+
+    col_query, col_growth = st.columns(2)
+
+    # ── 查询次数趋势（按天聚合，基于操作日志）──
+    with col_query:
+        st.markdown("**查询次数趋势**")
+        try:
+            logs = manager.get_operation_logs()
+            query_logs = [l for l in logs if l.get("action") == "query"]
+            if query_logs:
+                # 按天聚合
+                daily_counts: dict[str, int] = {}
+                for log in query_logs:
+                    dt = _parse_dt(log.get("timestamp", ""))
+                    if dt:
+                        day_key = dt.strftime("%Y-%m-%d")
+                        daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+
+                if daily_counts:
+                    import pandas as pd
+                    df = pd.DataFrame(
+                        sorted(daily_counts.items()),
+                        columns=["日期", "查询次数"],
+                    )
+                    df = df.set_index("日期")
+                    st.line_chart(df, use_container_width=True)
+                else:
+                    st.caption("暂无查询记录")
+            else:
+                st.caption("暂无查询记录")
+        except Exception as exc:
+            st.error(f"加载查询趋势失败: {exc}")
+
+    # ── 用户增长趋势（按注册时间累积）──
+    with col_growth:
+        st.markdown("**用户增长趋势**")
+        try:
+            users = manager.list_users()
+            if users:
+                # 按注册日期聚合
+                daily_reg: dict[str, int] = {}
+                for u in users:
+                    dt = _parse_dt(u.get("created_at", ""))
+                    if dt:
+                        day_key = dt.strftime("%Y-%m-%d")
+                        daily_reg[day_key] = daily_reg.get(day_key, 0) + 1
+
+                if daily_reg:
+                    import pandas as pd
+                    sorted_days = sorted(daily_reg.items())
+                    dates = [d[0] for d in sorted_days]
+                    counts = [d[1] for d in sorted_days]
+                    # 累积增长
+                    cumulative = []
+                    running = 0
+                    for c in counts:
+                        running += c
+                        cumulative.append(running)
+                    df = pd.DataFrame({"用户总数": cumulative}, index=dates)
+                    st.line_chart(df, use_container_width=True)
+                else:
+                    st.caption("暂无注册记录")
+            else:
+                st.caption("暂无注册用户")
+        except Exception as exc:
+            st.error(f"加载用户增长趋势失败: {exc}")
+
+
+def _render_mode_usage(manager):
+    """渲染各模式使用占比图（基于学习记录的 source_type）。
+
+    Args:
+        manager: UserDataManager 实例
+    """
+    st.subheader("🎯 模式使用分布")
+
+    try:
+        records = manager.get_all_learning_records()
+    except Exception as exc:
+        st.error(f"加载学习记录失败: {exc}")
+        return
+
+    if not records:
+        st.caption("暂无学习记录数据")
+        return
+
+    # 按 source_type 聚合
+    mode_counts: dict[str, int] = {}
+    mode_labels = {
+        "qa": "智能问答", "quiz": "自测刷题", "compare": "对比学习",
+        "case": "病例分析", "agent": "智能体", "chat": "对话",
+        "search": "搜索", "textbook": "教材浏览",
+    }
+    for rec in records:
+        source = rec.get("source_type", "chat")
+        label = mode_labels.get(source, source)
+        mode_counts[label] = mode_counts.get(label, 0) + 1
+
+    if not mode_counts:
+        st.caption("暂无模式使用数据")
+        return
+
+    col_chart, col_detail = st.columns([3, 1])
+
+    with col_chart:
+        import pandas as pd
+        df = pd.DataFrame(
+            list(mode_counts.items()), columns=["模式", "次数"],
+        )
+        st.bar_chart(df.set_index("模式"), use_container_width=True)
+
+    with col_detail:
+        total = sum(mode_counts.values())
+        for mode, count in sorted(mode_counts.items(), key=lambda x: -x[1]):
+            pct = round(count / total * 100, 1) if total > 0 else 0
+            st.text(f"{mode}: {count} ({pct}%)")
+
+
+def _render_system_config(manager):
+    """渲染系统配置区域（模型、API Key、教材、存储后端状态）。
+
+    Args:
+        manager: UserDataManager 实例
+    """
+    st.subheader("⚙️ 系统配置")
+
+    # ── 当前模型 ──
+    current_model = st.session_state.get("model_key", "")
+    if current_model:
+        try:
+            from config import MODELS
+            model_info = MODELS.get(current_model, {})
+            model_name = model_info.get("name", current_model)
+        except Exception:
+            model_name = current_model
+    else:
+        model_name = "未选择（使用默认降级顺序）"
+
+    # ── API Key 状态 ──
+    api_key_status = {}
+    try:
+        from config import MODEL_PROVIDERS, get_api_key
+        for provider, info in MODEL_PROVIDERS.items():
+            env_var = info["api_key_env"]
+            key = get_api_key(provider)
+            api_key_status[provider] = {
+                "env_var": env_var,
+                "configured": bool(key),
+            }
+    except Exception:
+        pass
+
+    # ── 教材数量 ──
+    book_count = 0
+    total_chunks = 0
+    try:
+        from ui_components import load_manifest, get_book_stats
+        manifest = load_manifest()
+        if manifest:
+            _, book_count, total_chunks, _ = get_book_stats(manifest)
+    except Exception:
+        pass
+
+    # ── 存储后端状态 ──
+    storage_status = "未知"
+    try:
+        client = manager._client
+        if hasattr(client, "_available"):
+            if client._available:
+                storage_status = "✅ Upstash Redis（在线）"
+                if getattr(client, "_jsonbin", None) is not None:
+                    storage_status += " + JSONBin 降级（备用）"
+            else:
+                if getattr(client, "_jsonbin", None) is not None:
+                    storage_status = "⚠️ Upstash 未配置，使用 JSONBin 降级"
+                else:
+                    storage_status = "🔴 存储后端均未配置"
+    except Exception:
+        pass
+
+    # ── 展示配置 ──
+    col_model, col_books = st.columns(2)
+
+    with col_model:
+        st.markdown("**当前模型**")
+        st.code(model_name)
+        st.markdown("**存储后端**")
+        st.write(storage_status)
+
+    with col_books:
+        st.markdown("**教材索引**")
+        st.write(f"📚 教材数量: **{book_count}** 本")
+        st.write(f"📄 文本块总数: **{total_chunks:,}**")
+
+    # ── API Key 状态表 ──
+    if api_key_status:
+        st.markdown("**API Key 配置状态**")
+        key_rows = []
+        for provider, info in api_key_status.items():
+            status_icon = "✅ 已配置" if info["configured"] else "❌ 未配置"
+            key_rows.append({
+                "提供商": provider,
+                "环境变量": info["env_var"],
+                "状态": status_icon,
+            })
+        st.table(key_rows)
 
 
 def _parse_sort_choice(sort_choice: str) -> tuple:
@@ -531,8 +796,23 @@ def render_admin_panel(manager):
 
     st.divider()
 
-    # 系统统计
+    # 系统统计（含活跃用户）
     _render_system_stats(manager)
+
+    st.divider()
+
+    # 趋势分析（查询趋势 + 用户增长）
+    _render_trend_charts(manager)
+
+    st.divider()
+
+    # 模式使用分布
+    _render_mode_usage(manager)
+
+    st.divider()
+
+    # 系统配置
+    _render_system_config(manager)
 
     st.divider()
 
