@@ -164,6 +164,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_project": "**项目：**",
         "about_desc": "**说明：**",
         "about_desc_value": "AI 驱动的医学知识检索与学习平台",
+        # 账号安全
+        "security_title": "🔐 账号安全",
+        "security_guest_hint": "游客模式无法修改账号信息，请先登录",
+        "change_password_title": "修改密码",
+        "old_password_label": "当前密码",
+        "new_password_label": "新密码",
+        "confirm_new_password_label": "确认新密码",
+        "password_rules_hint": "至少 8 位，包含大写字母、小写字母、数字中的至少两种",
+        "change_password_btn": "修改密码",
+        "password_changed_ok": "✅ 密码修改成功",
+        "password_old_wrong": "❌ 当前密码错误",
+        "password_same_as_old": "❌ 新密码不能与旧密码相同",
+        "password_change_failed": "⚠️ 密码修改失败：{error}",
+        "email_section_title": "绑定邮箱",
+        "email_current_label": "当前邮箱",
+        "email_not_bound": "未绑定",
+        "email_new_label": "新邮箱",
+        "email_verify_password": "当前密码验证",
+        "email_change_btn": "更新邮箱",
+        "email_changed_ok": "✅ 邮箱更新成功",
+        "email_invalid": "❌ 邮箱格式不正确",
+        "email_same_as_current": "❌ 新邮箱与当前邮箱相同",
+        "email_change_failed": "⚠️ 邮箱更新失败：{error}",
+        # 关于页面增强
+        "about_version_history_title": "📋 版本历史",
+        "about_help_title": "📖 使用帮助",
+        "about_help_intro": "Med-KB 提供六大功能模式，满足医学学习的不同场景：",
+        "about_feedback_title": "💬 反馈与建议",
+        "about_feedback_desc": "如果你有任何问题或建议，欢迎通过以下渠道反馈：",
+        "about_feedback_github": "GitHub Issues",
+        "about_feedback_community": "魔搭社区评论区",
     },
     "en-US": {
         # Header
@@ -291,6 +322,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "about_project": "**Project:**",
         "about_desc": "**Description:**",
         "about_desc_value": "AI-powered medical knowledge retrieval & learning platform",
+        # Account security
+        "security_title": "🔐 Account Security",
+        "security_guest_hint": "Guest mode cannot modify account info. Please log in first.",
+        "change_password_title": "Change Password",
+        "old_password_label": "Current Password",
+        "new_password_label": "New Password",
+        "confirm_new_password_label": "Confirm New Password",
+        "password_rules_hint": "At least 8 characters, with at least 2 of: uppercase, lowercase, digits",
+        "change_password_btn": "Change Password",
+        "password_changed_ok": "✅ Password changed successfully",
+        "password_old_wrong": "❌ Current password is incorrect",
+        "password_same_as_old": "❌ New password cannot be the same as the old password",
+        "password_change_failed": "⚠️ Password change failed: {error}",
+        "email_section_title": "Email",
+        "email_current_label": "Current Email",
+        "email_not_bound": "Not linked",
+        "email_new_label": "New Email",
+        "email_verify_password": "Current Password Verification",
+        "email_change_btn": "Update Email",
+        "email_changed_ok": "✅ Email updated successfully",
+        "email_invalid": "❌ Invalid email format",
+        "email_same_as_current": "❌ New email is the same as the current one",
+        "email_change_failed": "⚠️ Email update failed: {error}",
+        # About page enhanced
+        "about_version_history_title": "📋 Version History",
+        "about_help_title": "📖 Help",
+        "about_help_intro": "Med-KB provides six feature modes for different medical learning scenarios:",
+        "about_feedback_title": "💬 Feedback",
+        "about_feedback_desc": "If you have any questions or suggestions, please reach out via:",
+        "about_feedback_github": "GitHub Issues",
+        "about_feedback_community": "ModelScope Community",
     },
 }
 
@@ -1308,3 +1370,235 @@ def render_data_management_section(book_stats: dict) -> None:
             st.error(t("dm_restore_fail").format(error=str(exc)))
         except Exception as exc:
             st.error(t("dm_restore_fail").format(error=str(exc)))
+
+
+# ── 账号安全 ─────────────────────────────────────────────
+
+def _handle_change_password(old_pwd: str, new_pwd: str, confirm_pwd: str) -> None:
+    """处理修改密码逻辑（在 form submit 回调中调用）。
+
+    流程：验证旧密码 -> 校验新密码 -> 确认一致 -> 哈希 -> 全量更新。
+    全量更新 user_data，仅替换 password_hash，保留其他字段不变。
+
+    设计要点（来自 lessons-learned）：
+    - update_user 是全量覆盖写，必须传完整 user_data，否则会丢失 learning_records/preferences/stats
+    - role 不可变性守卫：profile 中保留原 role 不变即可通过
+    """
+    from copy import deepcopy
+    from auth_logic import verify_password, hash_password
+    from auth_components import validate_password, validate_confirm_password
+
+    username = st.session_state.get("auth_username", "")
+    user_data = st.session_state.get("user_data") or {}
+    profile = user_data.get("profile", {}) or {}
+    stored_hash = profile.get("password_hash", "")
+
+    # 1. 验证旧密码
+    if not verify_password(old_pwd, stored_hash):
+        st.error(t("password_old_wrong"))
+        return
+
+    # 2. 校验新密码规则
+    err = validate_password(new_pwd)
+    if err:
+        st.error(err)
+        return
+
+    # 3. 确认两次输入一致
+    err = validate_confirm_password(new_pwd, confirm_pwd)
+    if err:
+        st.error(err)
+        return
+
+    # 4. 新旧密码不能相同
+    if verify_password(new_pwd, stored_hash):
+        st.error(t("password_same_as_old"))
+        return
+
+    # 5. 哈希新密码并全量更新
+    new_hash = hash_password(new_pwd)
+    updated_data = deepcopy(user_data)
+    updated_data.setdefault("profile", {})["password_hash"] = new_hash
+
+    try:
+        from auth_components import get_data_manager
+        manager = get_data_manager()
+        result = manager.update_user(username, updated_data)
+        st.session_state["user_data"] = result
+        st.success(t("password_changed_ok"))
+    except Exception as exc:
+        logger.error("密码修改失败: %s", exc, exc_info=True)
+        st.error(t("password_change_failed").format(error=str(exc)))
+
+
+def _handle_change_email(new_email: str, verify_pwd: str) -> None:
+    """处理绑定/修改邮箱逻辑（在 form submit 回调中调用）。
+
+    流程：验证当前密码 -> 校验邮箱格式 -> 全量更新。
+    """
+    from copy import deepcopy
+    from auth_logic import verify_password
+    from database_models import EMAIL_PATTERN
+
+    username = st.session_state.get("auth_username", "")
+    user_data = st.session_state.get("user_data") or {}
+    profile = user_data.get("profile", {}) or {}
+    stored_hash = profile.get("password_hash", "")
+    current_email = profile.get("email", "")
+
+    # 1. 验证当前密码
+    if not verify_password(verify_pwd, stored_hash):
+        st.error(t("password_old_wrong"))
+        return
+
+    # 2. 校验邮箱格式
+    new_email = new_email.strip()
+    if not new_email or not EMAIL_PATTERN.match(new_email):
+        st.error(t("email_invalid"))
+        return
+
+    # 3. 新旧邮箱不能相同
+    if new_email == current_email:
+        st.error(t("email_same_as_current"))
+        return
+
+    # 4. 全量更新
+    updated_data = deepcopy(user_data)
+    updated_data.setdefault("profile", {})["email"] = new_email
+
+    try:
+        from auth_components import get_data_manager
+        manager = get_data_manager()
+        result = manager.update_user(username, updated_data)
+        st.session_state["user_data"] = result
+        st.success(t("email_changed_ok"))
+    except Exception as exc:
+        logger.error("邮箱更新失败: %s", exc, exc_info=True)
+        st.error(t("email_change_failed").format(error=str(exc)))
+
+
+def render_account_security_section() -> None:
+    """渲染账号安全模块：修改密码、绑定/修改邮箱。
+
+    验收标准：
+    - 修改密码：输入旧密码验证、新密码两次确认，规则与注册一致（至少8位含两种字符类型）
+    - 绑定/修改邮箱：需输入当前密码验证
+    - 游客模式不显示（无持久化数据）
+    """
+    st.markdown(f"#### {t('security_title')}")
+
+    if st.session_state.get("auth_mode_type") == "guest":
+        st.info(t("security_guest_hint"))
+        return
+
+    user_data = st.session_state.get("user_data") or {}
+    profile = user_data.get("profile", {}) or {}
+    current_email = profile.get("email", "")
+
+    # ── 修改密码 ──
+    with st.expander(t("change_password_title"), expanded=False):
+        st.caption(t("password_rules_hint"))
+        with st.form("change_password_form", clear_on_submit=True):
+            old_pwd = st.text_input(
+                t("old_password_label"), type="password", key="sec_old_pwd",
+            )
+            new_pwd = st.text_input(
+                t("new_password_label"), type="password", key="sec_new_pwd",
+            )
+            confirm_pwd = st.text_input(
+                t("confirm_new_password_label"), type="password", key="sec_confirm_pwd",
+            )
+            submitted = st.form_submit_button(
+                t("change_password_btn"), use_container_width=True, type="primary",
+            )
+            if submitted:
+                _handle_change_password(old_pwd, new_pwd, confirm_pwd)
+
+    # ── 绑定/修改邮箱 ──
+    with st.expander(t("email_section_title"), expanded=False):
+        display_email = current_email if current_email else t("email_not_bound")
+        st.markdown(f"**{t('email_current_label')}：** {_esc(display_email)}")
+        with st.form("change_email_form", clear_on_submit=True):
+            new_email = st.text_input(
+                t("email_new_label"), placeholder="user@example.com", key="sec_new_email",
+            )
+            verify_pwd = st.text_input(
+                t("email_verify_password"), type="password", key="sec_email_pwd",
+            )
+            submitted = st.form_submit_button(
+                t("email_change_btn"), use_container_width=True, type="primary",
+            )
+            if submitted:
+                _handle_change_email(new_email, verify_pwd)
+
+
+# ── 关于页面 ─────────────────────────────────────────────
+
+# 版本历史数据（与 wiki-context.md 同步）
+_VERSION_HISTORY = [
+    ("v2.2.4", "2026-07-22", "存储架构升级，免费模型更新，教材重新 OCR"),
+    ("v2.2.3", "2026-07-04", "用户系统，DOS 防护，密码缓存"),
+    ("v2.2.2", "2026-06-27", "多模型支持，降级机制，重试"),
+    ("v2.2.1", "2026-06-21", "对话式改造，置信度评估，缓存"),
+    ("v2.2.0", "2026-06-16", "智能体模式（ReAct），5大工具"),
+    ("v2.1", "2026-06-12", "优化提示词，刷题升级"),
+    ("v2.0", "2026-06-12", "新增刷题、对比、病例、考点标注"),
+    ("v1.0", "2026-06-01", "基础问答，43本教材，混合检索"),
+]
+
+# 六大功能模式帮助说明
+_MODE_HELP = {
+    "zh-CN": [
+        ("💬 智能问答", "基于教材内容的智能问答，支持多轮对话和来源引用"),
+        ("📝 自测刷题", "自动生成题目进行自测，支持考点解析和答题统计"),
+        ("🔄 对比学习", "对比学习相近医学概念，加深理解"),
+        ("🏥 病例分析", "基于真实病例进行分析，培养临床思维"),
+        ("🤖 智能体模式", "AI 智能体自主调用工具完成复杂任务"),
+        ("📜 搜索历史", "查看和管理历史查询记录，支持重新搜索"),
+    ],
+    "en-US": [
+        ("💬 Smart Q&A", "Intelligent Q&A based on textbook content with multi-turn dialogue and source citations"),
+        ("📝 Self-Quiz", "Auto-generate questions for self-testing with key point analysis and statistics"),
+        ("🔄 Compare Learning", "Compare similar medical concepts to deepen understanding"),
+        ("🏥 Case Analysis", "Analyze real cases to develop clinical thinking"),
+        ("🤖 Agent Mode", "AI agent autonomously uses tools for complex tasks"),
+        ("📜 Search History", "View and manage query history, support re-search"),
+    ],
+}
+
+
+def render_about_section() -> None:
+    """渲染关于页面增强：版本信息、版本历史、帮助文档、反馈渠道。
+
+    验收标准：
+    - 显示版本历史（至少当前版本 v2.2.4）
+    - 帮助文档覆盖六大功能模式
+    - 反馈渠道显示 GitHub Issues 链接
+    """
+    from __init__ import __version__
+
+    st.markdown(f"#### {t('about_title')}")
+
+    # 基本信息
+    st.markdown(f"{t('about_version')} {__version__}")
+    st.markdown(f"{t('about_project')} {t('app_title')}")
+    st.markdown(f"{t('about_desc')} {t('about_desc_value')}")
+
+    # 版本历史
+    st.markdown(f"##### {t('about_version_history_title')}")
+    for ver, date, desc in _VERSION_HISTORY:
+        st.markdown(f"- **{ver}** ({date}) — {desc}")
+
+    # 帮助文档
+    st.markdown(f"##### {t('about_help_title')}")
+    st.markdown(t("about_help_intro"))
+    lang = st.session_state.get("pref_language", "zh-CN")
+    mode_help = _MODE_HELP.get(lang, _MODE_HELP["zh-CN"])
+    for icon_name, desc in mode_help:
+        st.markdown(f"- **{icon_name}** — {desc}")
+
+    # 反馈渠道
+    st.markdown(f"##### {t('about_feedback_title')}")
+    st.markdown(t("about_feedback_desc"))
+    st.markdown(f"- 🐛 [{t('about_feedback_github')}](https://github.com)")
+    st.markdown(f"- 💬 {t('about_feedback_community')}")

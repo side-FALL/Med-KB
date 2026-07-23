@@ -30,6 +30,7 @@ from settings_components import (
     render_retrieval_settings_section,
     render_textbook_management_section, render_search_history_section,
     render_learning_stats_section, render_data_management_section,
+    render_account_security_section, render_about_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
@@ -220,12 +221,13 @@ with mode[5]:
 
     st.divider()
 
-    # 关于
-    st.markdown(f"#### {t('about_title')}")
-    from __init__ import __version__
-    st.markdown(f"{t('about_version')} {__version__}")
-    st.markdown(f"{t('about_project')} {t('app_title')}")
-    st.markdown(f"{t('about_desc')} {t('about_desc_value')}")
+    # 账号安全（修改密码、绑定邮箱）
+    render_account_security_section()
+
+    st.divider()
+
+    # 关于（版本历史、帮助文档、反馈渠道）
+    render_about_section()
 
 # ── 模式七：管理面板（仅管理员可见）──────────────────────
 if is_admin():
