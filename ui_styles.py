@@ -91,6 +91,36 @@ _SETTINGS_CARD_CSS = """
     color: #6C757D;
     font-size: 0.85rem;
 }
+
+/* 教材管理列表项 */
+.tm-book-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #212529;
+    line-height: 1.8;
+}
+.tm-subject-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    background: rgba(13,110,253,0.10);
+    color: #0A58CA;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+}
+.tm-chunks {
+    font-size: 0.82rem;
+    color: #6C757D;
+}
+.tm-selected-badge {
+    display: inline-block;
+    font-size: 0.68rem;
+    background: #198754;
+    color: #FFFFFF;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+}
 """
 
 _DARK_THEME_CSS = """
@@ -150,6 +180,10 @@ _DARK_THEME_CSS = """
 .settings-field-label { color: #8A8F98; }
 .settings-field-value { color: #E6E6E6; }
 .settings-user-meta { color: #8A8F98; }
+/* 教材管理暗色适配 */
+.tm-book-name { color: #E6E6E6; }
+.tm-subject-badge { background: rgba(13,110,253,0.25); color: #6EA8FE; }
+.tm-chunks { color: #8A8F98; }
 """
 
 

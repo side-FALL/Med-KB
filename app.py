@@ -27,6 +27,7 @@ from ui_components import (
 from settings_components import (
     t, ensure_pref_defaults, load_preferences_from_user_data,
     render_user_info_section, render_preferences_section,
+    render_textbook_management_section,
 )
 from dos_protection import check_rate_limit, render_rate_limit_banner
 from auth_components import (
@@ -205,6 +206,11 @@ with mode[5]:
     st.session_state["top_k"] = top_k
     st.session_state["alpha"] = alpha
     st.session_state["use_context"] = use_context
+
+    st.divider()
+
+    # 教材管理（已选教材列表、收藏、关键词搜索与学科筛选）
+    render_textbook_management_section(book_stats, ALL_BOOKS)
 
     st.divider()
 

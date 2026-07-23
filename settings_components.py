@@ -80,6 +80,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alpha_help": "1.0=纯向量检索，0.0=纯关键词检索",
         "use_context_label": "启用多轮对话",
         "use_context_help": "开启后AI会参考之前对话的上下文",
+        # 教材管理
+        "tm_title": "📚 教材管理",
+        "tm_summary": "已选 {n}/{total} 本 · {chunks:,} 个文本块 · 已收藏 {f} 本",
+        "tm_selected_none": "未选择教材：请在主界面“教材范围”中挑选，或切换为“全部教材”。",
+        "tm_search_label": "搜索教材",
+        "tm_search_ph": "输入教材名称关键词…",
+        "tm_subject_label": "学科筛选",
+        "tm_subject_all": "全部学科",
+        "tm_scope_label": "显示范围",
+        "tm_scope_selected": "已选",
+        "tm_scope_all": "全部",
+        "tm_scope_fav": "收藏",
+        "tm_chunks_unit": "块",
+        "tm_selected_badge": "已选",
+        "tm_empty": "没有符合条件的教材",
+        "tm_fav_empty": "暂无收藏教材，点击教材前的 ☆ 即可收藏",
+        "tm_fav_add": "收藏该教材",
+        "tm_fav_remove": "取消收藏",
         # 搜索历史
         "history_title": "📜 搜索历史",
         "history_empty": "暂无搜索历史",
@@ -141,6 +159,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alpha_help": "1.0 = pure vector search, 0.0 = pure keyword search",
         "use_context_label": "Enable Multi-turn Context",
         "use_context_help": "When on, AI considers previous conversation context",
+        # Textbook management
+        "tm_title": "📚 Textbook Management",
+        "tm_summary": "{n}/{total} books selected · {chunks:,} chunks · {f} favorited",
+        "tm_selected_none": "No books selected: pick books via the scope selector on the main page, or switch to \"All textbooks\".",
+        "tm_search_label": "Search textbooks",
+        "tm_search_ph": "Type book name keywords…",
+        "tm_subject_label": "Subject filter",
+        "tm_subject_all": "All subjects",
+        "tm_scope_label": "Show",
+        "tm_scope_selected": "Selected",
+        "tm_scope_all": "All",
+        "tm_scope_fav": "Favorites",
+        "tm_chunks_unit": "chunks",
+        "tm_selected_badge": "Selected",
+        "tm_empty": "No textbooks match the filters",
+        "tm_fav_empty": "No favorites yet — click ☆ before a book to favorite it",
+        "tm_fav_add": "Add to favorites",
+        "tm_fav_remove": "Remove from favorites",
         # History
         "history_title": "📜 Search History",
         "history_empty": "No search history yet",
@@ -165,6 +201,48 @@ def t(key: str) -> str:
     lang = st.session_state.get("pref_language", "zh-CN")
     table = TRANSLATIONS.get(lang, TRANSLATIONS["zh-CN"])
     return table.get(key) or TRANSLATIONS["zh-CN"].get(key, key)
+
+
+# ── 教材学科分类 ─────────────────────────────────────────
+# manifest.json 无学科字段，按教材名称关键词规则归类（43 本全量核对）。
+# 规则按优先级匹配，命中即返回；未命中默认临床医学（内外妇儿等占多数）。
+
+SUBJECTS = ["基础医学", "临床医学", "诊断与影像", "药学", "预防与公卫", "人文与全科", "中医学"]
+
+SUBJECT_I18N: dict[str, dict[str, str]] = {
+    "en-US": {
+        "基础医学": "Basic Sciences",
+        "临床医学": "Clinical Medicine",
+        "诊断与影像": "Diagnostics & Imaging",
+        "药学": "Pharmacology",
+        "预防与公卫": "Preventive & Public Health",
+        "人文与全科": "Humanities & GP",
+        "中医学": "Chinese Medicine",
+    },
+}
+
+_SUBJECT_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("中医学", ("中医",)),
+    ("药学", ("药理",)),  # 药理学 / 临床药理学，须先于默认临床
+    ("基础医学", ("生理", "生物", "病理", "微生物", "寄生虫", "免疫", "遗传", "物理", "组织学", "解剖", "法医")),
+    ("诊断与影像", ("诊断", "影像")),
+    ("预防与公卫", ("预防", "流行病学", "循证", "营养")),
+    ("人文与全科", ("心理", "统计", "医患", "全科")),
+)
+
+
+def classify_subject(book_name: str) -> str:
+    """按教材名称关键词归类学科，返回 canonical 中文学科名。"""
+    for subject, keywords in _SUBJECT_RULES:
+        if any(kw in book_name for kw in keywords):
+            return subject
+    return "临床医学"
+
+
+def subject_label(subject: str) -> str:
+    """学科名按当前语言偏好翻译（canonical 为中文）。"""
+    lang = st.session_state.get("pref_language", "zh-CN")
+    return SUBJECT_I18N.get(lang, {}).get(subject, subject)
 
 
 # ── 偏好读写 ───────────────────────────────────────────────
@@ -197,6 +275,7 @@ def load_preferences_from_user_data() -> None:
             st.session_state["prefs_loaded_for"] = "guest"
             for k, v in PREF_DEFAULTS.items():
                 st.session_state[k] = v
+            st.session_state["favorites"] = []
             _clear_pref_widget_keys()
         return
 
@@ -223,6 +302,9 @@ def load_preferences_from_user_data() -> None:
     display_name = prefs.get("display_name", "")
     if isinstance(display_name, str):
         st.session_state["pref_display_name"] = display_name
+    fav_books = prefs.get("favorite_books")
+    if isinstance(fav_books, list):
+        st.session_state["favorites"] = [b for b in fav_books if isinstance(b, str)]
 
 
 def _persist_preferences() -> None:
@@ -238,6 +320,7 @@ def _persist_preferences() -> None:
         "language": st.session_state["pref_language"],
         "font_size": st.session_state["pref_font_size"],
         "display_name": st.session_state["pref_display_name"].strip(),
+        "favorite_books": list(st.session_state.get("favorites") or []),
     }
 
     # 同步更新 session 内的 user_data 快照，保证本 run 后续读取一致
@@ -470,3 +553,133 @@ def _on_font_change() -> None:
 def _on_display_name_change() -> None:
     st.session_state["pref_display_name"] = st.session_state["pref_display_name_input"]
     _persist_preferences()
+
+
+# ── 教材管理 ─────────────────────────────────────────────
+
+def _get_favorites() -> list:
+    """读取收藏教材列表（容忍异常类型，始终返回 list）。"""
+    favs = st.session_state.get("favorites")
+    return favs if isinstance(favs, list) else []
+
+
+def _toggle_favorite(book: str) -> None:
+    """收藏/取消收藏回调：更新 session_state 并随偏好持久化（登录用户）。
+
+    按钮点击本身已触发 rerun，回调内不做额外 st.rerun()。
+    """
+    favs = _get_favorites()
+    if book in favs:
+        favs.remove(book)
+    else:
+        favs.append(book)
+    st.session_state["favorites"] = favs
+    _persist_preferences()
+
+
+def render_textbook_management_section(book_stats: dict, ALL_BOOKS: list[str]) -> None:
+    """渲染教材管理：已选教材列表、收藏、关键词搜索与学科筛选。
+
+    - 已选集合与主界面"教材范围"联动（全部教材 / selected_books）
+    - 收藏存 session_state["favorites"]，登录用户随偏好持久化到用户数据
+    - 单一列表 + 三种显示范围（已选/全部/收藏），避免与主界面选择器重复
+    """
+    favorites = _get_favorites()
+    scope_mode = st.session_state.get("scope_selector", "全部教材")
+    if scope_mode == "选择教材":
+        selected = [b for b in st.session_state.get("selected_books") or [] if b in book_stats]
+    else:
+        selected = list(ALL_BOOKS)
+
+    selected_set = set(selected)
+    fav_set = set(favorites)
+    sel_chunks = sum(book_stats.get(b, 0) for b in selected)
+    valid_fav_count = sum(1 for b in favorites if b in book_stats)
+
+    st.markdown(f"#### {t('tm_title')}")
+    st.caption(t("tm_summary").format(
+        n=len(selected), total=len(ALL_BOOKS), chunks=sel_chunks, f=valid_fav_count
+    ))
+    if scope_mode == "选择教材" and not selected:
+        st.warning(t("tm_selected_none"))
+
+    # 筛选行：关键词 + 学科 + 显示范围
+    f1, f2 = st.columns([3, 2])
+    with f1:
+        keyword = st.text_input(
+            t("tm_search_label"),
+            placeholder=t("tm_search_ph"),
+            key="tm_search",
+        )
+    with f2:
+        subject_sel = st.selectbox(
+            t("tm_subject_label"),
+            ["__all__"] + SUBJECTS,
+            format_func=lambda s: t("tm_subject_all") if s == "__all__" else subject_label(s),
+            key="tm_subject",
+        )
+    view_labels = {
+        "selected": t("tm_scope_selected"),
+        "all": t("tm_scope_all"),
+        "fav": t("tm_scope_fav"),
+    }
+    view = st.radio(
+        t("tm_scope_label"),
+        ["selected", "all", "fav"],
+        format_func=lambda v: view_labels[v],
+        horizontal=True,
+        key="tm_view",
+    )
+
+    # 按显示范围取基础集合，再叠加关键词与学科筛选
+    if view == "fav":
+        base = [b for b in ALL_BOOKS if b in fav_set]
+    elif view == "selected":
+        base = selected
+    else:
+        base = list(ALL_BOOKS)
+
+    kw = (keyword or "").strip().lower()
+    shown = [
+        b for b in base
+        if (not kw or kw in b.lower())
+        and (subject_sel == "__all__" or classify_subject(b) == subject_sel)
+    ]
+
+    if not shown:
+        if view == "fav" and not kw and subject_sel == "__all__":
+            st.info(t("tm_fav_empty"))
+        else:
+            st.info(t("tm_empty"))
+        return
+
+    for b in shown:
+        idx = ALL_BOOKS.index(b)
+        c_star, c_name, c_subj, c_chunks, c_badge = st.columns([0.6, 5, 2.2, 1.6, 1.4])
+        with c_star:
+            starred = b in fav_set
+            st.button(
+                "⭐" if starred else "☆",
+                key=f"tm_fav_{idx}",
+                help=t("tm_fav_remove") if starred else t("tm_fav_add"),
+                on_click=_toggle_favorite,
+                args=(b,),
+            )
+        with c_name:
+            st.markdown(f"<span class='tm-book-name'>{_esc(b)}</span>", unsafe_allow_html=True)
+        with c_subj:
+            st.markdown(
+                f"<span class='tm-subject-badge'>{_esc(subject_label(classify_subject(b)))}</span>",
+                unsafe_allow_html=True,
+            )
+        with c_chunks:
+            st.markdown(
+                f"<span class='tm-chunks'>{book_stats.get(b, 0):,} {t('tm_chunks_unit')}</span>",
+                unsafe_allow_html=True,
+            )
+        with c_badge:
+            if b in selected_set:
+                st.markdown(
+                    f"<span class='tm-selected-badge'>{t('tm_selected_badge')}</span>",
+                    unsafe_allow_html=True,
+                )
