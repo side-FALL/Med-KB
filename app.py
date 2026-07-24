@@ -216,8 +216,8 @@ with mode[5]:
 
     st.divider()
 
-    # 数据管理（导出学习记录、导出收藏、备份恢复）
-    render_data_management_section(book_stats)
+    # 数据管理（导出学习记录、备份恢复）
+    render_data_management_section()
 
     st.divider()
 
