@@ -137,9 +137,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records": "导出学习记录",
         "dm_export_records_csv": "📥 学习记录 CSV",
         "dm_export_records_json": "📥 学习记录 JSON",
-        "dm_export_fav": "导出收藏教材",
-        "dm_export_fav_csv": "📥 收藏教材 CSV",
-        "dm_export_fav_json": "📥 收藏教材 JSON",
         "dm_backup": "数据备份",
         "dm_backup_btn": "📤 导出全部数据",
         "dm_backup_help": "导出你的所有设置和数据为 JSON 文件，可用于备份或迁移",
@@ -149,8 +146,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_restore_fail": "⚠️ 数据恢复失败：{error}",
         "dm_restore_invalid": "⚠️ 文件格式不正确，请上传有效的备份文件",
         "dm_guest_hint": "游客模式数据仅本次会话有效，导出的备份文件可在登录后恢复",
-        "dm_book_col": "教材名称",
-        "dm_added_at_col": "收藏时间",
         # 统计
         "kb_stats_title": "📊 知识库统计",
         "kb_books": "教材数量",
@@ -283,9 +278,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records": "Export Learning Records",
         "dm_export_records_csv": "📥 Records CSV",
         "dm_export_records_json": "📥 Records JSON",
-        "dm_export_fav": "Export Favorites",
-        "dm_export_fav_csv": "📥 Favorites CSV",
-        "dm_export_fav_json": "📥 Favorites JSON",
         "dm_backup": "Data Backup",
         "dm_backup_btn": "📤 Export All Data",
         "dm_backup_help": "Export all your settings and data as a JSON file for backup or migration",
@@ -295,8 +287,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_restore_fail": "⚠️ Data restore failed: {error}",
         "dm_restore_invalid": "⚠️ Invalid file format, please upload a valid backup file",
         "dm_guest_hint": "Guest data is session-only; exported backups can be restored after logging in",
-        "dm_book_col": "Textbook Name",
-        "dm_added_at_col": "Added",
         # Stats
         "kb_stats_title": "📊 Knowledge Base Stats",
         "kb_books": "Textbooks",
@@ -1149,18 +1139,6 @@ def render_learning_stats_section() -> None:
 
 # ── 数据管理 ─────────────────────────────────────────────
 
-def _build_favorites_csv(favorites: list, book_stats: dict | None = None) -> str:
-    """将收藏教材列表构建为 CSV 字符串（UTF-8 BOM 头确保 Excel 正确显示中文）。"""
-    output = io.StringIO()
-    output.write("\ufeff")  # UTF-8 BOM
-    writer = csv.writer(output)
-    writer.writerow([t("dm_book_col"), t("tm_chunks_unit")])
-    for book in favorites:
-        chunks = (book_stats or {}).get(book, 0)
-        writer.writerow([book, chunks])
-    return output.getvalue()
-
-
 def _build_backup_json() -> str:
     """构建全量用户数据备份 JSON。
 
@@ -1241,11 +1219,10 @@ def _restore_from_backup(backup: dict) -> bool:
     return True
 
 
-def render_data_management_section(book_stats: dict) -> None:
-    """渲染数据管理模块：导出学习记录、导出收藏、数据备份与恢复。
+def render_data_management_section() -> None:
+    """渲染数据管理模块：导出学习记录、数据备份与恢复。
 
     - 导出学习记录：复用搜索历史的 CSV/JSON 构建（含 time/mode/q/model）
-    - 导出收藏教材：CSV（教材名+块数）/ JSON
     - 数据备份：导出全量用户数据为 JSON
     - 数据恢复：上传备份 JSON 文件恢复偏好和收藏
     """
@@ -1256,7 +1233,6 @@ def render_data_management_section(book_stats: dict) -> None:
         st.info(t("dm_guest_hint"))
 
     hist = st.session_state.get("hist") or []
-    favorites = _get_favorites()
 
     # ── 导出学习记录 ──
     st.caption(f"**{t('dm_export_records')}** ({len(hist)} {t('ls_records').lower() if hist else ''})")
@@ -1280,30 +1256,6 @@ def render_data_management_section(book_stats: dict) -> None:
             key="dm_export_records_json",
             use_container_width=True,
             disabled=not hist,
-        )
-
-    # ── 导出收藏教材 ──
-    st.caption(f"**{t('dm_export_fav')}** ({len(favorites)} {t('ls_favorites').lower() if favorites else ''})")
-    c3, c4 = st.columns(2)
-    with c3:
-        st.download_button(
-            t("dm_export_fav_csv"),
-            data=_build_favorites_csv(favorites, book_stats),
-            file_name="favorites.csv",
-            mime="text/csv",
-            key="dm_export_fav_csv",
-            use_container_width=True,
-            disabled=not favorites,
-        )
-    with c4:
-        st.download_button(
-            t("dm_export_fav_json"),
-            data=json.dumps(favorites, ensure_ascii=False, indent=2),
-            file_name="favorites.json",
-            mime="application/json",
-            key="dm_export_fav_json",
-            use_container_width=True,
-            disabled=not favorites,
         )
 
     st.divider()
