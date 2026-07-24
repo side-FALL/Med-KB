@@ -128,6 +128,82 @@ _SETTINGS_CARD_CSS = """
     line-height: 1.6;
     word-break: break-all;
 }
+
+/* 学习统计面板 */
+.ls-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin: 0.5rem 0 1rem 0;
+}
+.ls-card {
+    background: #FFFFFF;
+    border: 1px solid #E3E8EF;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.05);
+}
+.ls-card-icon {
+    flex-shrink: 0;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+}
+.ls-card-icon.blue { background: rgba(13,110,253,0.10); }
+.ls-card-icon.green { background: rgba(25,135,84,0.10); }
+.ls-card-icon.orange { background: rgba(253,126,20,0.12); }
+.ls-card-icon.purple { background: rgba(111,66,193,0.10); }
+.ls-card-body { min-width: 0; }
+.ls-card-value {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: #1A2332;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+.ls-card-label {
+    font-size: 0.72rem;
+    color: #6C757D;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+.ls-insight-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.ls-insight-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    color: #3D4A5C;
+    background: #F1F5F9;
+    border: 1px solid #E3E8EF;
+    border-radius: 999px;
+    padding: 0.3rem 0.85rem;
+}
+.ls-insight-chip strong { color: #0A58CA; font-weight: 600; }
+.ls-chart-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #3D4A5C;
+    margin-bottom: 0.15rem;
+}
+.ls-chart-help {
+    font-size: 0.75rem;
+    color: #8A8F98;
+    margin-bottom: 0.35rem;
+}
 """
 
 _DARK_THEME_CSS = """
@@ -193,6 +269,25 @@ _DARK_THEME_CSS = """
 .tm-chunks { color: #8A8F98; }
 /* 搜索历史暗色适配 */
 .hist-query { color: #E6E6E6; }
+/* 学习统计暗色适配 */
+.ls-card {
+    background: #161922;
+    border-color: #3A3F4B;
+    box-shadow: none;
+}
+.ls-card-icon.blue { background: rgba(13,110,253,0.22); }
+.ls-card-icon.green { background: rgba(25,135,84,0.22); }
+.ls-card-icon.orange { background: rgba(253,126,20,0.22); }
+.ls-card-icon.purple { background: rgba(111,66,193,0.22); }
+.ls-card-value { color: #E6E6E6; }
+.ls-card-label { color: #8A8F98; }
+.ls-insight-chip {
+    background: #1C1F26;
+    border-color: #3A3F4B;
+    color: #B0B3B8;
+}
+.ls-insight-chip strong { color: #6EA8FE; }
+.ls-chart-title { color: #B0B3B8; }
 """
 
 

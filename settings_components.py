@@ -132,6 +132,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ls_dist_help": "各功能模式的使用占比",
         "ls_records": "学习记录",
         "ls_favorites": "收藏教材",
+        "ls_week": "近7日查询",
+        "ls_top_mode": "最常用模式",
         # 数据管理
         "dm_title": "💾 数据管理",
         "dm_export_records": "导出学习记录",
@@ -273,6 +275,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ls_dist_help": "Usage breakdown by feature mode",
         "ls_records": "Learning Records",
         "ls_favorites": "Favorites",
+        "ls_week": "Last 7 days",
+        "ls_top_mode": "Top mode",
         # Data management
         "dm_title": "💾 Data Management",
         "dm_export_records": "Export Learning Records",
@@ -1074,14 +1078,31 @@ def _parse_hist_date(time_str: str) -> str | None:
         return None
 
 
-def render_learning_stats_section() -> None:
-    """渲染学习统计模块：查询趋势折线图 + 模式分布柱状图。
+def _render_ls_stat_card(icon: str, color: str, value: int, label: str) -> str:
+    """构建单个学习统计卡片的 HTML（图标 chip + 大数字 + 小标签）。"""
+    return (
+        f'<div class="ls-card">'
+        f'<div class="ls-card-icon {color}">{icon}</div>'
+        f'<div class="ls-card-body">'
+        f'<div class="ls-card-value">{value}</div>'
+        f'<div class="ls-card-label">{html.escape(label)}</div>'
+        f'</div></div>'
+    )
 
-    数据来源：session_state["hist"]（各模式查询时追加，含 time/mode/q 字段）。
-    图表使用 Streamlit 原生 st.line_chart / st.bar_chart（底层 pandas），
-    不引入 plotly 等额外重依赖。
+
+def render_learning_stats_section() -> None:
+    """渲染学习统计模块：指标卡片 + 洞察 chips + 趋势/分布双图表。
+
+    数据来源：session_state["hist"]（各模式查询时追加，含 time/mode/q 字段）
+    与 session_state["favorites"]（收藏教材列表）。
+
+    布局：
+    - 4 张统计卡片（总查询/今日/使用模式/收藏教材），CSS grid 自适应列数
+    - 洞察 chips（近7日查询、最常用模式）
+    - 查询趋势折线图与模式分布柱状图并排（Streamlit 原生图表，不引入重依赖）
 
     空数据时显示提示信息，不渲染图表。
+    样式类定义在 ui_styles._SETTINGS_CARD_CSS / _DARK_THEME_CSS（明暗双主题）。
     """
     import pandas as pd
 
@@ -1092,24 +1113,41 @@ def render_learning_stats_section() -> None:
         st.info(t("ls_empty"))
         return
 
-    # 概览指标
+    # ── 概览统计卡片 ──
     today_str = datetime.now().strftime("%Y-%m-%d")
     today_count = sum(1 for h in hist if _parse_hist_date(h.get("time", "")) == today_str)
     used_modes = len({h.get("mode", "") for h in hist})
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric(t("ls_total"), len(hist))
-    with c2:
-        st.metric(t("ls_today"), today_count)
-    with c3:
-        st.metric(t("ls_modes"), used_modes)
+    favorites_count = len(st.session_state.get("favorites") or [])
 
+    cards_html = (
+        _render_ls_stat_card("📈", "blue", len(hist), t("ls_total"))
+        + _render_ls_stat_card("📅", "green", today_count, t("ls_today"))
+        + _render_ls_stat_card("🧭", "purple", used_modes, t("ls_modes"))
+        + _render_ls_stat_card("⭐", "orange", favorites_count, t("ls_favorites"))
+    )
+    st.markdown(f'<div class="ls-card-grid">{cards_html}</div>', unsafe_allow_html=True)
+
+    # ── 洞察 chips：近7日查询 + 最常用模式 ──
+    week_count = sum(1 for h in hist if (d := _parse_hist_date(h.get("time", ""))) is not None
+                     and 0 <= (datetime.now().date() - datetime.strptime(d, "%Y-%m-%d").date()).days < 7)
+    mode_list = [h.get("mode", "") for h in hist if h.get("mode")]
+    top_mode = max(set(mode_list), key=mode_list.count) if mode_list else "—"
+    chips_html = (
+        f'<span class="ls-insight-chip">🗓️ {html.escape(t("ls_week"))} <strong>{week_count}</strong></span>'
+        f'<span class="ls-insight-chip">🏆 {html.escape(t("ls_top_mode"))} '
+        f'<strong>{html.escape(top_mode)}</strong></span>'
+    )
+    st.markdown(f'<div class="ls-insight-row">{chips_html}</div>', unsafe_allow_html=True)
+
+    # ── 双图表并排：查询趋势 + 模式分布 ──
     # 查询趋势折线图：按天聚合查询次数
     dates: list[str] = []
     for h in hist:
         d = _parse_hist_date(h.get("time", ""))
         if d:
             dates.append(d)
+
+    df_trend_chart = None
     if dates:
         df_trend = pd.DataFrame({"date": dates})
         df_trend = df_trend.groupby("date").size().reset_index(name="count")
@@ -1124,17 +1162,30 @@ def render_learning_stats_section() -> None:
             df_trend = df_trend.set_index("date").reindex(full_range, fill_value=0).reset_index()
             df_trend.columns = ["date", "count"]
         df_trend_chart = df_trend.set_index("date")
-        st.caption(f"**{t('ls_trend')}** — {t('ls_trend_help')}")
-        st.line_chart(df_trend_chart, use_container_width=True)
 
-    # 模式分布柱状图：各 mode 使用次数
-    mode_list = [h.get("mode", t("ls_modes")) for h in hist]
+    df_dist_chart = None
     if mode_list:
         df_dist = pd.Series(mode_list).value_counts().reset_index()
         df_dist.columns = ["mode", "count"]
         df_dist_chart = df_dist.set_index("mode")
-        st.caption(f"**{t('ls_dist')}** — {t('ls_dist_help')}")
-        st.bar_chart(df_dist_chart, use_container_width=True)
+
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        if df_trend_chart is not None:
+            st.markdown(
+                f'<div class="ls-chart-title">📉 {html.escape(t("ls_trend"))}</div>'
+                f'<div class="ls-chart-help">{html.escape(t("ls_trend_help"))}</div>',
+                unsafe_allow_html=True,
+            )
+            st.line_chart(df_trend_chart, use_container_width=True)
+    with chart_right:
+        if df_dist_chart is not None:
+            st.markdown(
+                f'<div class="ls-chart-title">📊 {html.escape(t("ls_dist"))}</div>'
+                f'<div class="ls-chart-help">{html.escape(t("ls_dist_help"))}</div>',
+                unsafe_allow_html=True,
+            )
+            st.bar_chart(df_dist_chart, use_container_width=True)
 
 
 # ── 数据管理 ─────────────────────────────────────────────
