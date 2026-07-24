@@ -130,9 +130,9 @@ class UserDataManager:
     """
 
     # 允许的角色值
-    _VALID_ROLES = frozenset({"user", "admin", "guest"})
+    _VALID_ROLES = frozenset({"user", "admin", "guest", "super_admin"})
     # 需要管理员权限才能创建的角色
-    _PRIVILEGED_ROLES = frozenset({"admin"})
+    _PRIVILEGED_ROLES = frozenset({"admin", "super_admin"})
 
     def __init__(
         self,
@@ -334,7 +334,7 @@ class UserDataManager:
                     f"非法角色: {role!r}，允许值: {', '.join(sorted(self._VALID_ROLES))}",
                 )
 
-            # 权限检查：创建特权角色（如 admin）需要管理员权限
+            # 权限检查：创建特权角色（如 admin/super_admin）需要管理员权限
             if role in self._PRIVILEGED_ROLES:
                 if self._current_user is None:
                     # 系统级操作（无当前用户上下文），允许
@@ -347,7 +347,14 @@ class UserDataManager:
                             "权限不足: 当前用户不存在，无法创建特权角色用户"
                         )
                     caller_role = caller_data.get("profile", {}).get("role", "user")
-                    if caller_role != "admin":
+                    # 创建 super_admin 需要 super_admin 权限
+                    if role == "super_admin" and caller_role != "super_admin":
+                        raise DataOperationError(
+                            f"权限不足: 仅超级管理员可创建 super_admin 角色用户，"
+                            f"当前用户 {self._current_user!r} 角色为 {caller_role!r}"
+                        )
+                    # 创建 admin 需要 admin 或 super_admin 权限
+                    if caller_role not in ("admin", "super_admin"):
                         raise DataOperationError(
                             f"权限不足: 仅管理员可创建 {role!r} 角色用户，"
                             f"当前用户 {self._current_user!r} 角色为 {caller_role!r}"
@@ -560,15 +567,16 @@ class UserDataManager:
             logger.info("用户数据更新成功: %s", username)
             return user_data
 
-    def delete_user(self, username: str) -> None:
+    def delete_user(self, username: str, operator: Optional[str] = None) -> None:
         """删除用户数据（用户注销或管理员操作）。
 
         Args:
             username: 用户名
+            operator: 操作者用户名（用于权限检查和日志记录）
 
         Raises:
             UserNotFoundError: 用户不存在
-            DataOperationError: 操作失败
+            DataOperationError: 操作失败（含管理员保护规则拒绝）
         """
         with self._lock:
             root = self._ensure_initialized()
@@ -577,12 +585,17 @@ class UserDataManager:
             if username not in users:
                 raise UserNotFoundError(f"用户 {username!r} 不存在")
 
+            # 管理员互相保护：普通管理员不能删除其他管理员
+            operator_name = operator or self._current_user
+            self._check_admin_protection(username, operator_name, root)
+
             del users[username]
             root["users"] = users
 
             # 记录操作日志
+            log_operator = operator_name or username
             self._log_operation(
-                root, action="delete_user", username=username,
+                root, action="delete_user", username=log_operator,
                 detail=f"用户删除: {username}",
                 target=username,
             )
@@ -596,6 +609,55 @@ class UserDataManager:
 
             self._save_root(root)
             logger.info("用户删除成功: %s", username)
+
+    # ── 管理员互相保护 ──────────────────────────────────────
+
+    def _check_admin_protection(
+        self, target_username: str, operator: Optional[str], root: dict,
+    ) -> None:
+        """检查管理员互相保护规则。
+
+        管理员之间不能删除、禁用、修改其他管理员的角色，只有超级管理员可操作。
+
+        Args:
+            target_username: 目标用户名
+            operator: 操作者用户名（None 表示系统级操作）
+            root: 根数据字典
+
+        Raises:
+            DataOperationError: 操作被管理员保护规则拒绝
+        """
+        # 系统级操作（current_user=None）不受限制
+        if operator is None:
+            return
+
+        users = root.get("users", {})
+        target_data = users.get(target_username)
+        if target_data is None:
+            return  # 目标用户不存在，由调用方处理
+
+        target_role = target_data.get("profile", {}).get("role", "user")
+
+        # 目标不是管理员，不受保护规则限制
+        if target_role != "admin":
+            return
+
+        # 目标是管理员，检查操作者是否为超级管理员
+        operator_data = users.get(operator)
+        if operator_data is None:
+            raise DataOperationError(
+                f"权限不足: 操作者 {operator!r} 不存在"
+            )
+
+        operator_role = operator_data.get("profile", {}).get("role", "user")
+
+        if operator_role != "super_admin":
+            raise DataOperationError(
+                f"安全限制: 管理员之间不能互相操作。"
+                f"只有超级管理员才能对管理员账号执行此操作"
+                f"（操作者 {operator!r} 角色为 {operator_role!r}，"
+                f"目标 {target_username!r} 角色为 {target_role!r}）"
+            )
 
     # ── 管理员操作 ──────────────────────────────────────────
 
@@ -635,11 +697,20 @@ class UserDataManager:
                     f"非法角色: {new_role!r}，允许值: {', '.join(sorted(self._VALID_ROLES))}",
                 )
 
-            # 防提权守卫：禁止通过管理面板将用户提升为 admin
+            # 防提权守卫：普通管理员不能将用户提升为 admin，仅超级管理员可操作
+            operator_name = operator or self._current_user
             if new_role == "admin":
-                raise DataOperationError(
-                    "安全限制：不允许通过管理面板将用户提升为管理员角色"
-                )
+                # 检查操作者是否为超级管理员
+                if operator_name is not None:
+                    op_data = users.get(operator_name)
+                    op_role = op_data.get("profile", {}).get("role", "user") if op_data else "user"
+                    if op_role != "super_admin":
+                        raise DataOperationError(
+                            "安全限制：仅超级管理员可将用户提升为管理员角色"
+                        )
+
+            # 管理员互相保护：普通管理员不能修改其他管理员的角色
+            self._check_admin_protection(username, operator_name, root)
 
             user_data = deepcopy(users[username])
             current_role = user_data.get("profile", {}).get("role", "user")
@@ -727,12 +798,16 @@ class UserDataManager:
             if username not in users:
                 raise UserNotFoundError(f"用户 {username!r} 不存在")
 
+            # 管理员互相保护：普通管理员不能禁用/启用其他管理员
+            operator_name = operator or self._current_user
+            self._check_admin_protection(username, operator_name, root)
+
             user_data = deepcopy(users[username])
             user_data["profile"]["disabled"] = disabled
             users[username] = user_data
             root["users"] = users
 
-            operator_name = operator or self._current_user or "admin"
+            operator_name = operator_name or "admin"
             action_text = "禁用" if disabled else "启用"
             log_action = "disable_user" if disabled else "enable_user"
             self._log_operation(
