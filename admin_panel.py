@@ -791,8 +791,8 @@ def _render_user_management(manager, current_admin: str, current_is_super: bool 
         is_disabled = user.get("disabled", False)
         role_badge = user["role"]
         status_badge = "🚫禁用" if is_disabled else "✅正常"
-        # 管理员互相保护：目标是管理员且当前用户不是超级管理员时，禁止操作
-        target_is_admin = (role_badge == "admin")
+        # 管理员互相保护：目标是管理员（含 super_admin）且当前用户不是超级管理员时，禁止操作
+        target_is_admin = role_badge in ("admin", "super_admin")
         protected_by_admin_rule = target_is_admin and not current_is_super
 
         header_text = f"👤 **{username}** ({role_badge}) [{status_badge}]"
@@ -821,7 +821,8 @@ def _render_user_management(manager, current_admin: str, current_is_super: bool 
                     st.rerun()
             with col_pwd:
                 if st.button("🔑 重置密码", key=f"btn_pwd_{username}",
-                             use_container_width=True):
+                             use_container_width=True,
+                             disabled=is_self or protected_by_admin_rule):
                     st.session_state["admin_pending_action"] = {
                         "type": "reset_password", "username": username,
                     }
@@ -845,9 +846,9 @@ def _render_user_management(manager, current_admin: str, current_is_super: bool 
                     st.rerun()
 
             if is_self:
-                st.caption("⚠️ 无法对当前登录的管理员账号执行修改角色/禁用/删除操作")
+                st.caption("⚠️ 无法对当前登录的管理员账号执行修改角色/重置密码/禁用/删除操作")
             elif protected_by_admin_rule:
-                st.caption("🔒 该用户为管理员，仅超级管理员可对其执行修改角色/禁用/删除操作")
+                st.caption("🔒 该用户为管理员，仅超级管理员可对其执行修改角色/重置密码/禁用/删除操作")
 
 
 def _render_operation_logs(manager):
