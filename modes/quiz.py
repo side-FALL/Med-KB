@@ -5,6 +5,7 @@
 
 import logging
 import re
+from datetime import datetime
 
 import streamlit as st
 
@@ -12,6 +13,7 @@ from config import MODELS, get_model_api_config
 from search_engine import search
 from ui_components import (
     fix_latex_formulas, load_selected_books, render_empty_state,
+    render_markdown_export_button,
 )
 from llm_utils import QUIZ_SYSTEM_PROMPT, build_quiz_message, call_llm_stream
 
@@ -123,6 +125,18 @@ def render(
             if st.button("👁️ 显示全部答案", key="reveal_all"):
                 st.session_state.quiz_revealed = [True] * len(st.session_state.quiz_questions)
                 st.rerun()
+
+        # 导出为 Markdown：拼接题目与答案的原始内容
+        export_parts = []
+        for i, q in enumerate(st.session_state.quiz_questions):
+            ans = st.session_state.quiz_answers[i] if i < len(st.session_state.quiz_answers) else ""
+            export_parts.append(f"## 第 {i+1} 题\n\n{q}\n\n**答案**\n\n{ans}")
+        render_markdown_export_button(
+            "\n\n---\n\n".join(export_parts),
+            question=f"自测刷题：{st.session_state.quiz_topic_display}",
+            mode_label="刷题",
+            key=f"export_md_quiz_{datetime.now().strftime('%H%M%S%f')}",
+        )
     else:
         render_empty_state(
             "输入知识点主题开始刷题",
