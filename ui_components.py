@@ -6,6 +6,7 @@
 import re
 import json
 import html
+from datetime import datetime
 
 import numpy as np
 import streamlit as st
@@ -320,6 +321,39 @@ def render_empty_state(title: str, subtitle: str, examples: list[str] = None):
         {examples_html}
     </div>
     """, unsafe_allow_html=True)
+
+
+# ── Markdown 导出 ───────────────────────────────────────
+
+def render_markdown_export_button(answer: str, question: str = "",
+                                  mode_label: str = "", key: str = ""):
+    """在输出结果下方渲染"导出为 Markdown"下载按钮。
+
+    Args:
+        answer: AI 输出正文（Markdown 原文，未做 LaTeX 修复，保持原始内容）
+        question: 用户问题（作为文档标题）
+        mode_label: 模式名称（问答/对比/病例/智能体）
+        key: st.download_button 唯一 key（同一页面多个按钮必须不同）
+    """
+    if not answer or not answer.strip():
+        return
+
+    ts = datetime.now()
+    title = question.strip()[:50] or "输出结果"
+    lines = [f"# {title}", ""]
+    if mode_label:
+        lines.append(f"> 模式：{mode_label}  ")
+    lines.append(f"> 导出自 医学教材知识库 · {ts.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines += ["", "---", "", answer, ""]
+    md_content = "\n".join(lines)
+
+    st.download_button(
+        "📥 导出为 Markdown",
+        data=md_content,
+        file_name=f"med-kb_{mode_label or 'export'}_{ts.strftime('%Y%m%d_%H%M%S')}.md",
+        mime="text/markdown",
+        key=key or f"export_md_{ts.strftime('%H%M%S%f')}",
+    )
 
 
 # ── 对话气泡 ────────────────────────────────────────────

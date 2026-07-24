@@ -17,6 +17,7 @@ from search_engine import search
 from ui_components import (
     fix_latex_formulas, load_selected_books,
     render_source_cards_inline, render_empty_state,
+    render_markdown_export_button,
 )
 from llm_utils import (
     COMPACT_SYSTEM_PROMPT, EXAM_SYSTEM_PROMPT,
@@ -71,7 +72,7 @@ def render(
 
     # ── 聊天历史区域 ──────────────────────────────────
     if qa_items:
-        for item in qa_items:
+        for i, item in enumerate(qa_items):
             # 用户消息
             with st.chat_message("user", avatar="👤"):
                 st.markdown(item["q"])
@@ -82,6 +83,10 @@ def render(
                     render_source_cards_inline(item["hits"])
                 st.markdown(fix_latex_formulas(item["a"]))
                 st.caption(f"模型: {item.get('model', 'AI')}")
+                render_markdown_export_button(
+                    item["a"], question=item["q"], mode_label="问答",
+                    key=f"export_md_qa_hist_{i}",
+                )
     else:
         # 空状态引导
         render_empty_state(
@@ -248,6 +253,12 @@ def _process_query(
 
             # 记录学习行为
             _record_learning(query)
+
+            # 导出 Markdown 按钮
+            render_markdown_export_button(
+                ans, question=query, mode_label="问答",
+                key=f"export_md_qa_new_{datetime.now().strftime('%H%M%S%f')}",
+            )
 
         else:
             st.warning("未找到相关内容，请换个关键词试试。")
