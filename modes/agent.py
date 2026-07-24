@@ -12,7 +12,7 @@ from datetime import datetime
 import streamlit as st
 
 from config import MODELS, get_model_api_config
-from ui_components import fix_latex_formulas
+from ui_components import fix_latex_formulas, render_markdown_export_button
 from agent_lite import run_agent, run_agent_stream
 from settings_components import consume_pending_search
 
@@ -75,7 +75,7 @@ def render(
 
     # ── 显示历史对话 ────────────────────────────────────
     if st.session_state.agent_turns:
-        for q, a, steps in st.session_state.agent_turns:
+        for idx, (q, a, steps) in enumerate(st.session_state.agent_turns):
             # 用户消息
             with st.chat_message("user", avatar="👤"):
                 st.markdown(q)
@@ -87,6 +87,10 @@ def render(
                         for j, step in enumerate(steps):
                             st.markdown(f"**步骤 {j+1}:** `{step['tool']}` → {step['output'][:100]}...")
                 st.markdown(fix_latex_formulas(a))
+                render_markdown_export_button(
+                    a, question=q, mode_label="智能体",
+                    key=f"export_md_agent_hist_{idx}",
+                )
     else:
         # 空对话引导提示
         from ui_components import render_empty_state
@@ -227,6 +231,13 @@ def _process_agent_query(
                 # 记录学习行为（每轮对话完成时记录一次）
                 if final_answer:
                     _record_learning(query, topic="智能体对话")
+
+                # 导出 Markdown 按钮
+                if final_answer:
+                    render_markdown_export_button(
+                        final_answer, question=query, mode_label="智能体",
+                        key=f"export_md_agent_new_{datetime.now().strftime('%H%M%S%f')}",
+                    )
         else:
             # ── 降级到非流式模式 ──
             result = run_agent(
@@ -259,6 +270,13 @@ def _process_agent_query(
             # 记录学习行为（每轮对话完成时记录一次）
             if not has_error and result.get("output"):
                 _record_learning(query, topic="智能体对话")
+
+            # 导出 Markdown 按钮
+            if not has_error and result.get("output"):
+                render_markdown_export_button(
+                    result["output"], question=query, mode_label="智能体",
+                    key=f"export_md_agent_new_fb_{datetime.now().strftime('%H%M%S%f')}",
+                )
 
         # 思考过程折叠面板：状态完成后一次性渲染（嵌入气泡内部）
         if steps and not has_error:

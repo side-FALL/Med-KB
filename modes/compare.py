@@ -13,6 +13,7 @@ from search_engine import search
 from ui_components import (
     fix_latex_formulas, load_selected_books,
     render_user_bubble, render_ai_bubble, render_empty_state,
+    render_markdown_export_button,
 )
 from llm_utils import COMPARE_SYSTEM_PROMPT, build_compare_message, call_llm_stream
 from settings_components import consume_pending_search
@@ -107,6 +108,12 @@ def render(
 
             # 记录学习行为
             _record_learning(f"{concept_a} vs {concept_b}", topic=f"{concept_a} vs {concept_b}")
+
+            # 导出 Markdown 按钮
+            render_markdown_export_button(
+                cmp_ans, question=f"{concept_a} vs {concept_b}", mode_label="对比",
+                key=f"export_md_cmp_new_{datetime.now().strftime('%H%M%S%f')}",
+            )
         else:
             st.warning("未找到相关教材内容，请换个概念试试。")
 
@@ -114,11 +121,15 @@ def render(
     cmp_items = [h for h in st.session_state.hist if h.get("mode") == "对比"]
     if cmp_items:
         st.markdown("---")
-        for item in reversed(cmp_items):
+        for i, item in enumerate(reversed(cmp_items)):
             render_user_bubble(item["q"])
             fixed_cmp = fix_latex_formulas(item["a"])
             render_ai_bubble()
             st.markdown(fixed_cmp)
+            render_markdown_export_button(
+                item["a"], question=item["q"], mode_label="对比",
+                key=f"export_md_cmp_hist_{i}",
+            )
     else:
         render_empty_state(
             "输入两个概念开始对比学习",
