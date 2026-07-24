@@ -123,14 +123,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_resend_hint": "已触发重新搜索，请切换到「{mode}」标签页查看结果",
         # 学习统计
         "ls_title": "📊 学习统计",
-        "ls_empty": "暂无学习数据，开始使用后这里会展示统计图表",
+        "ls_empty": "暂无学习数据，开始使用后这里会展示统计数据",
         "ls_total": "总查询",
         "ls_today": "今日",
         "ls_modes": "使用模式",
         "ls_trend": "查询趋势",
-        "ls_trend_help": "按天统计的查询次数变化",
+        "ls_trend_help": "按天统计的查询次数（最近日期在前）",
         "ls_dist": "模式分布",
-        "ls_dist_help": "各功能模式的使用占比",
+        "ls_dist_help": "各功能模式的使用次数与占比",
+        "ls_date_col": "日期",
+        "ls_count_col": "查询次数",
+        "ls_usage_col": "使用次数",
+        "ls_pct_col": "占比",
         "ls_records": "学习记录",
         "ls_favorites": "收藏教材",
         "ls_week": "近7日查询",
@@ -268,14 +272,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_resend_hint": "Search triggered — switch to the \"{mode}\" tab to see results",
         # Learning stats
         "ls_title": "📊 Learning Statistics",
-        "ls_empty": "No learning data yet. Charts will appear here after you start using the app.",
+        "ls_empty": "No learning data yet. Statistics will appear here after you start using the app.",
         "ls_total": "Total queries",
         "ls_today": "Today",
         "ls_modes": "Modes used",
         "ls_trend": "Query Trend",
-        "ls_trend_help": "Daily query count over time",
+        "ls_trend_help": "Daily query count (most recent first)",
         "ls_dist": "Mode Distribution",
-        "ls_dist_help": "Usage breakdown by feature mode",
+        "ls_dist_help": "Usage count and share by feature mode",
+        "ls_date_col": "Date",
+        "ls_count_col": "Queries",
+        "ls_usage_col": "Uses",
+        "ls_pct_col": "Share",
         "ls_records": "Learning Records",
         "ls_favorites": "Favorites",
         "ls_week": "Last 7 days",
@@ -1202,7 +1210,7 @@ def _render_ls_stat_card(icon: str, color: str, value: int, label: str) -> str:
 
 
 def render_learning_stats_section() -> None:
-    """渲染学习统计模块：指标卡片 + 洞察 chips + 趋势/分布双图表。
+    """渲染学习统计模块：指标卡片 + 洞察 chips + 趋势/分布双表格。
 
     数据来源：session_state["hist"]（各模式查询时追加，含 time/mode/q 字段）
     与 session_state["favorites"]（收藏教材列表）。
@@ -1210,9 +1218,10 @@ def render_learning_stats_section() -> None:
     布局：
     - 4 张统计卡片（总查询/今日/使用模式/收藏教材），CSS grid 自适应列数
     - 洞察 chips（近7日查询、最常用模式）
-    - 查询趋势折线图与模式分布柱状图并排（Streamlit 原生图表，不引入重依赖）
+    - 查询趋势表与模式分布表并排（st.dataframe 表格，兼容 iframe 嵌入环境，
+      替代原折线图/柱状图——原生图表在魔搭社区 iframe 中可能渲染失败）
 
-    空数据时显示提示信息，不渲染图表。
+    空数据时显示提示信息，不渲染表格。
     样式类定义在 ui_styles._SETTINGS_CARD_CSS / _DARK_THEME_CSS（明暗双主题）。
     """
     import pandas as pd
@@ -1250,20 +1259,20 @@ def render_learning_stats_section() -> None:
     )
     st.markdown(f'<div class="ls-insight-row">{chips_html}</div>', unsafe_allow_html=True)
 
-    # ── 双图表并排：查询趋势 + 模式分布 ──
-    # 查询趋势折线图：按天聚合查询次数
+    # ── 双表格并排：查询趋势 + 模式分布 ──
+    # 查询趋势表：按天聚合查询次数（替代折线图，兼容 iframe 嵌入）
     dates: list[str] = []
     for h in hist:
         d = _parse_hist_date(h.get("time", ""))
         if d:
             dates.append(d)
 
-    df_trend_chart = None
+    df_trend_table = None
     if dates:
         df_trend = pd.DataFrame({"date": dates})
         df_trend = df_trend.groupby("date").size().reset_index(name="count")
         df_trend = df_trend.sort_values("date")
-        # 补齐缺失日期（避免折线图断点），仅在数据跨度内
+        # 补齐缺失日期（保证数值精确、日期连续），仅在数据跨度内
         if len(df_trend) > 1:
             full_range = pd.date_range(
                 start=df_trend["date"].iloc[0],
@@ -1272,31 +1281,37 @@ def render_learning_stats_section() -> None:
             ).strftime("%Y-%m-%d")
             df_trend = df_trend.set_index("date").reindex(full_range, fill_value=0).reset_index()
             df_trend.columns = ["date", "count"]
-        df_trend_chart = df_trend.set_index("date")
+        # 表格按日期倒序展示，最近数据在前
+        df_trend_table = df_trend.sort_values("date", ascending=False).reset_index(drop=True)
+        df_trend_table.columns = [t("ls_date_col"), t("ls_count_col")]
 
-    df_dist_chart = None
+    # 模式分布表：各模式使用次数 + 占比（替代柱状图）
+    df_dist_table = None
     if mode_list:
         df_dist = pd.Series(mode_list).value_counts().reset_index()
         df_dist.columns = ["mode", "count"]
-        df_dist_chart = df_dist.set_index("mode")
+        total = int(df_dist["count"].sum())
+        df_dist["pct"] = (df_dist["count"] / total * 100).round(1).astype(str) + "%"
+        df_dist_table = df_dist
+        df_dist_table.columns = [t("history_mode_col"), t("ls_usage_col"), t("ls_pct_col")]
 
-    chart_left, chart_right = st.columns(2)
-    with chart_left:
-        if df_trend_chart is not None:
+    tbl_left, tbl_right = st.columns(2)
+    with tbl_left:
+        if df_trend_table is not None:
             st.markdown(
-                f'<div class="ls-chart-title">📉 {html.escape(t("ls_trend"))}</div>'
+                f'<div class="ls-chart-title">📅 {html.escape(t("ls_trend"))}</div>'
                 f'<div class="ls-chart-help">{html.escape(t("ls_trend_help"))}</div>',
                 unsafe_allow_html=True,
             )
-            st.line_chart(df_trend_chart, use_container_width=True)
-    with chart_right:
-        if df_dist_chart is not None:
+            st.dataframe(df_trend_table, use_container_width=True, hide_index=True)
+    with tbl_right:
+        if df_dist_table is not None:
             st.markdown(
                 f'<div class="ls-chart-title">📊 {html.escape(t("ls_dist"))}</div>'
                 f'<div class="ls-chart-help">{html.escape(t("ls_dist_help"))}</div>',
                 unsafe_allow_html=True,
             )
-            st.bar_chart(df_dist_chart, use_container_width=True)
+            st.dataframe(df_dist_table, use_container_width=True, hide_index=True)
 
 
 # ── 数据管理 ─────────────────────────────────────────────
