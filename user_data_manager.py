@@ -638,25 +638,31 @@ class UserDataManager:
 
         target_role = target_data.get("profile", {}).get("role", "user")
 
-        # 目标不是管理员，不受保护规则限制
-        if target_role != "admin":
+        # 目标不是管理员（admin 或 super_admin），不受保护规则限制
+        if target_role not in ("admin", "super_admin"):
             return
 
-        # 目标是管理员，检查操作者是否为超级管理员
+        # 目标是管理员，检查操作者是否有权限操作
         operator_data = users.get(operator)
         if operator_data is None:
-            raise DataOperationError(
-                f"权限不足: 操作者 {operator!r} 不存在"
+            logger.warning(
+                "管理员保护拦截: 操作者 %r 不存在，尝试操作目标 %r (角色 %s)",
+                operator, target_username, target_role,
             )
+            raise DataOperationError("权限不足: 无法执行此操作")
 
         operator_role = operator_data.get("profile", {}).get("role", "user")
 
+        # super_admin 目标仅允许其他 super_admin 操作
+        # admin 目标仅允许 super_admin 操作
         if operator_role != "super_admin":
+            logger.warning(
+                "管理员保护拦截: 操作者 %r (角色 %s) 尝试操作目标 %r (角色 %s)",
+                operator, operator_role, target_username, target_role,
+            )
             raise DataOperationError(
-                f"安全限制: 管理员之间不能互相操作。"
-                f"只有超级管理员才能对管理员账号执行此操作"
-                f"（操作者 {operator!r} 角色为 {operator_role!r}，"
-                f"目标 {target_username!r} 角色为 {target_role!r}）"
+                "安全限制: 管理员之间不能互相操作。"
+                "只有超级管理员才能对管理员账号执行此操作"
             )
 
     # ── 管理员操作 ──────────────────────────────────────────
@@ -755,20 +761,24 @@ class UserDataManager:
             if username not in users:
                 raise UserNotFoundError(f"用户 {username!r} 不存在")
 
+            # 管理员互相保护：普通管理员不能重置其他管理员的密码
+            operator_name = operator or self._current_user
+            self._check_admin_protection(username, operator_name, root)
+
             user_data = deepcopy(users[username])
             user_data["profile"]["password_hash"] = new_password_hash
             users[username] = user_data
             root["users"] = users
 
-            operator_name = operator or self._current_user or "admin"
+            log_operator = operator_name or "admin"
             self._log_operation(
-                root, action="reset_password", username=operator_name,
+                root, action="reset_password", username=log_operator,
                 detail=f"密码重置: {username}",
                 target=username,
             )
 
             self._save_root(root)
-            logger.info("用户密码重置: %s (by %s)", username, operator_name)
+            logger.info("用户密码重置: %s (by %s)", username, log_operator)
             return user_data
 
     def set_user_disabled(
