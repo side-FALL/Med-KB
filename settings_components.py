@@ -115,6 +115,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_delete": "删除该条",
         "history_export_csv": "📥 导出 CSV",
         "history_export_json": "📥 导出 JSON",
+        "history_export_md": "📥 导出 Markdown",
         "history_time": "搜索时间",
         "history_mode_col": "模式",
         "history_query": "查询内容",
@@ -139,6 +140,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records": "导出学习记录",
         "dm_export_records_csv": "📥 学习记录 CSV",
         "dm_export_records_json": "📥 学习记录 JSON",
+        "dm_export_records_md": "📥 学习记录 Markdown",
         "dm_backup": "数据备份",
         "dm_backup_btn": "📤 导出全部数据",
         "dm_backup_help": "导出你的所有设置和数据为 JSON 文件，可用于备份或迁移",
@@ -258,6 +260,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history_delete": "Delete this entry",
         "history_export_csv": "📥 Export CSV",
         "history_export_json": "📥 Export JSON",
+        "history_export_md": "📥 Export Markdown",
         "history_time": "Time",
         "history_mode_col": "Mode",
         "history_query": "Query",
@@ -282,6 +285,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records": "Export Learning Records",
         "dm_export_records_csv": "📥 Records CSV",
         "dm_export_records_json": "📥 Records JSON",
+        "dm_export_records_md": "📥 Records Markdown",
         "dm_backup": "Data Backup",
         "dm_backup_btn": "📤 Export All Data",
         "dm_backup_help": "Export all your settings and data as a JSON file for backup or migration",
@@ -971,6 +975,104 @@ def _build_history_csv(hist: list) -> str:
     return output.getvalue()
 
 
+# Markdown 导出用的模式标签（与 session_state["mode"] tab 名一致）
+_MD_MODE_LABELS = {
+    "问答": "💬 智能问答",
+    "刷题": "📝 自测刷题",
+    "对比": "🔄 对比学习",
+    "病例": "🏥 病例分析",
+    "智能体": "🤖 智能体",
+}
+
+
+def _build_history_markdown(hist: list) -> str:
+    """将搜索历史构建为格式清晰的 Markdown 文档。
+
+    输出包含：文档头（导出时间/用户/记录数）、按时间顺序的每条记录
+    （模式/时间/问题/AI 回答/参考来源/模型），仅使用 session_state 内存数据，
+    不读取用户数据库，确保缓存数据仅在当前会话有效。
+
+    hist 项字段：q, a, hits(list[dict]), model, mode, time
+    hit 字段：book, chapter, text, similarity
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    username = st.session_state.get("auth_username", "游客")
+    lang = st.session_state.get("pref_language", "zh-CN")
+    is_en = lang == "en-US"
+
+    lines: list[str] = []
+    lines.append("# 🏥 Med-KB " + ("Learning Records" if is_en else "学习记录"))
+    lines.append("")
+    lines.append(f"> **{'Export time' if is_en else '导出时间'}**：{now_str}  ")
+    lines.append(f"> **{'Records' if is_en else '记录数量'}**：{len(hist)}  ")
+    lines.append(f"> **{'User' if is_en else '会话用户'}**：{username}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    for i, item in enumerate(hist, 1):
+        mode = item.get("mode", "问答")
+        mode_label = _MD_MODE_LABELS.get(mode, mode)
+        time_str = item.get("time", "")
+        query = item.get("q", "")
+        answer = item.get("a", "")
+        model = item.get("model", "")
+        hits = item.get("hits") or []
+
+        # 标题：序号 + 模式 + 时间
+        lines.append(f"## {i}. {mode_label} | {time_str}")
+        lines.append("")
+
+        # 问题
+        lines.append(f"### {'❓ Question' if is_en else '❓ 问题'}")
+        lines.append("")
+        lines.append(query)
+        lines.append("")
+
+        # 回答
+        lines.append(f"### {'🤖 Answer' if is_en else '🤖 回答'}")
+        lines.append("")
+        if answer:
+            lines.append(answer)
+        else:
+            lines.append(f"*{'No answer' if is_en else '无回答内容'}*")
+        lines.append("")
+
+        # 模型
+        if model:
+            lines.append(f"> **{'Model' if is_en else '模型'}**：{model}")
+            lines.append("")
+
+        # 参考来源
+        if hits:
+            lines.append(f"### {'📚 References' if is_en else '📚 参考来源'}")
+            lines.append("")
+            for j, h in enumerate(hits, 1):
+                book = h.get("book", "")
+                chapter = h.get("chapter", "")
+                text = h.get("text", "")
+                score = h.get("similarity", 0)
+                header = f"{j}. **{book}**"
+                if chapter:
+                    header += f" · {chapter}"
+                if score:
+                    header += f" （{'relevance' if is_en else '相关度'}: {score:.0%}）"
+                lines.append(header)
+                if text:
+                    # 引用块展示原文片段，截断避免文档过长
+                    snippet = text.strip()[:300]
+                    if len(text.strip()) > 300:
+                        snippet += "…"
+                    lines.append("")
+                    lines.append(f"> {snippet}")
+                lines.append("")
+
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def render_search_history_section() -> None:
     """渲染搜索历史增强模块。
 
@@ -978,7 +1080,7 @@ def render_search_history_section() -> None:
     - 每条显示：搜索时间、查询内容、模式
     - 点击「🔄 重新搜索」可自动填入对应模式并触发搜索
     - 每条有删除按钮，点击后该条记录立即移除
-    - 支持导出 CSV / JSON 格式文件
+    - 支持导出 CSV / JSON / Markdown 格式文件
     """
     st.markdown(f"#### {t('history_title')}")
 
@@ -988,8 +1090,8 @@ def render_search_history_section() -> None:
         st.info(t("history_empty"))
         return
 
-    # 工具栏：导出 CSV / 导出 JSON / 清空全部
-    col1, col2, col3 = st.columns(3)
+    # 工具栏：导出 CSV / 导出 JSON / 导出 Markdown / 清空全部
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.download_button(
             t("history_export_csv"),
@@ -1009,6 +1111,15 @@ def render_search_history_section() -> None:
             use_container_width=True,
         )
     with col3:
+        st.download_button(
+            t("history_export_md"),
+            data=_build_history_markdown(hist),
+            file_name="search_history.md",
+            mime="text/markdown",
+            key="hist_export_md",
+            use_container_width=True,
+        )
+    with col4:
         if st.button(t("history_clear"), key="settings_clear_hist",
                       use_container_width=True):
             st.session_state.hist = []
@@ -1273,7 +1384,7 @@ def _restore_from_backup(backup: dict) -> bool:
 def render_data_management_section() -> None:
     """渲染数据管理模块：导出学习记录、数据备份与恢复。
 
-    - 导出学习记录：复用搜索历史的 CSV/JSON 构建（含 time/mode/q/model）
+    - 导出学习记录：复用搜索历史的 CSV/JSON/Markdown 构建（含 time/mode/q/model/answer/references）
     - 数据备份：导出全量用户数据为 JSON
     - 数据恢复：上传备份 JSON 文件恢复偏好和收藏
     """
@@ -1287,7 +1398,7 @@ def render_data_management_section() -> None:
 
     # ── 导出学习记录 ──
     st.caption(f"**{t('dm_export_records')}** ({len(hist)} {t('ls_records').lower() if hist else ''})")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.download_button(
             t("dm_export_records_csv"),
@@ -1305,6 +1416,16 @@ def render_data_management_section() -> None:
             file_name="learning_records.json",
             mime="application/json",
             key="dm_export_records_json",
+            use_container_width=True,
+            disabled=not hist,
+        )
+    with c3:
+        st.download_button(
+            t("dm_export_records_md"),
+            data=_build_history_markdown(hist),
+            file_name="learning_records.md",
+            mime="text/markdown",
+            key="dm_export_records_md",
             use_container_width=True,
             disabled=not hist,
         )
