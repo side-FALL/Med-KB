@@ -474,7 +474,7 @@ def _filter_and_sort_users(
 
 
 def _render_role_change_dialog(manager, target_username: str, current_role: str,
-                                current_admin: str):
+                                current_admin: str, current_is_super: bool = False):
     """渲染修改角色确认弹窗。
 
     Args:
@@ -482,17 +482,24 @@ def _render_role_change_dialog(manager, target_username: str, current_role: str,
         target_username: 目标用户名
         current_role: 当前角色
         current_admin: 当前管理员用户名
+        current_is_super: 当前用户是否为超级管理员
     """
     st.warning(f"⚠️ 确认修改用户 **{target_username}** 的角色（当前: {current_role}）")
 
     # 角色不可变性守卫说明
-    st.info("ℹ️ 安全限制：不允许通过管理面板将用户提升为管理员（admin）")
+    if current_is_super:
+        st.info("ℹ️ 超级管理员权限：可将用户提升为管理员（admin）")
+        available_roles = ["user", "guest", "admin"]
+        help_text = "可选择 user、guest 或 admin"
+    else:
+        st.info("ℹ️ 安全限制：不允许通过管理面板将用户提升为管理员（admin）")
+        available_roles = ["user", "guest"]
+        help_text = "仅可选择 user 或 guest，不可提升为 admin"
 
-    available_roles = ["user", "guest"]
     new_role = st.selectbox(
         "选择新角色", available_roles,
         key=f"new_role_{target_username}",
-        help="仅可选择 user 或 guest，不可提升为 admin",
+        help=help_text,
     )
     new_role = _safe_str(new_role, "user")
 
@@ -539,7 +546,7 @@ def _render_delete_dialog(manager, target_username: str, current_admin: str):
                       type="primary", use_container_width=True,
                       disabled=not can_delete):
             try:
-                manager.delete_user(target_username)
+                manager.delete_user(target_username, operator=current_admin)
                 st.success(f"✅ 用户 {target_username} 已被删除")
                 st.session_state.pop("admin_pending_action", None)
                 st.rerun()
@@ -648,12 +655,13 @@ def _render_toggle_disable_dialog(manager, target_username: str,
             st.rerun()
 
 
-def _render_user_management(manager, current_admin: str):
+def _render_user_management(manager, current_admin: str, current_is_super: bool = False):
     """渲染增强的用户管理区域（搜索、筛选、排序、分页、操作按钮）。
 
     Args:
         manager: UserDataManager 实例
         current_admin: 当前管理员用户名
+        current_is_super: 当前用户是否为超级管理员
     """
     st.subheader("👥 用户管理")
 
@@ -762,7 +770,7 @@ def _render_user_management(manager, current_admin: str):
             st.session_state.pop("admin_pending_action", None)
         elif action_type == "change_role":
             _render_role_change_dialog(
-                manager, target, target_user["role"], current_admin,
+                manager, target, target_user["role"], current_admin, current_is_super,
             )
         elif action_type == "delete":
             _render_delete_dialog(manager, target, current_admin)
@@ -783,6 +791,9 @@ def _render_user_management(manager, current_admin: str):
         is_disabled = user.get("disabled", False)
         role_badge = user["role"]
         status_badge = "🚫禁用" if is_disabled else "✅正常"
+        # 管理员互相保护：目标是管理员且当前用户不是超级管理员时，禁止操作
+        target_is_admin = (role_badge == "admin")
+        protected_by_admin_rule = target_is_admin and not current_is_super
 
         header_text = f"👤 **{username}** ({role_badge}) [{status_badge}]"
         if is_self:
@@ -803,7 +814,7 @@ def _render_user_management(manager, current_admin: str):
             with col_role:
                 if st.button("🔄 修改角色", key=f"btn_role_{username}",
                              use_container_width=True,
-                             disabled=is_self):
+                             disabled=is_self or protected_by_admin_rule):
                     st.session_state["admin_pending_action"] = {
                         "type": "change_role", "username": username,
                     }
@@ -819,7 +830,7 @@ def _render_user_management(manager, current_admin: str):
                 disable_label = "✅ 启用" if is_disabled else "🚫 禁用"
                 if st.button(disable_label, key=f"btn_disable_{username}",
                              use_container_width=True,
-                             disabled=is_self):
+                             disabled=is_self or protected_by_admin_rule):
                     st.session_state["admin_pending_action"] = {
                         "type": "toggle_disable", "username": username,
                     }
@@ -827,7 +838,7 @@ def _render_user_management(manager, current_admin: str):
             with col_delete:
                 if st.button("🗑️ 删除", key=f"btn_delete_{username}",
                              use_container_width=True,
-                             disabled=is_self):
+                             disabled=is_self or protected_by_admin_rule):
                     st.session_state["admin_pending_action"] = {
                         "type": "delete", "username": username,
                     }
@@ -835,6 +846,8 @@ def _render_user_management(manager, current_admin: str):
 
             if is_self:
                 st.caption("⚠️ 无法对当前登录的管理员账号执行修改角色/禁用/删除操作")
+            elif protected_by_admin_rule:
+                st.caption("🔒 该用户为管理员，仅超级管理员可对其执行修改角色/禁用/删除操作")
 
 
 def _render_operation_logs(manager):
@@ -928,13 +941,14 @@ def render_admin_panel(manager):
         manager: UserDataManager 实例（通过 get_data_manager() 获取）
     """
     # 安全校验：再次确认当前用户为管理员（防御性编程）
-    from auth_components import is_admin, get_auth_username
+    from auth_components import is_admin, get_auth_username, is_super_admin
 
     if not is_admin():
         st.error("⛔ 权限不足，仅管理员可访问管理面板")
         return
 
     current_admin = get_auth_username()
+    current_is_super = is_super_admin()
 
     # 渲染标题
     _render_admin_header()
@@ -976,7 +990,7 @@ def render_admin_panel(manager):
         st.divider()
 
         # 用户管理（增强）
-        _render_user_management(manager, current_admin)
+        _render_user_management(manager, current_admin, current_is_super)
 
     st.divider()
 

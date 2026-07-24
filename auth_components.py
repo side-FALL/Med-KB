@@ -935,12 +935,12 @@ def show_auth_warning(message: str):
 
 
 def is_admin() -> bool:
-    """检查当前用户是否为管理员。
+    """检查当前用户是否为管理员（含超级管理员）。
 
-    仅当用户已通过登录认证（非游客模式）且角色为 admin 时返回 True。
+    仅当用户已通过登录认证（非游客模式）且角色为 admin 或 super_admin 时返回 True。
     游客模式和未认证用户始终返回 False。
 
-    角色判断基于 ``user_data.get("profile", {}).get("role") == "admin"``，
+    角色判断基于 ``user_data.get("profile", {}).get("role")``，
     与数据库模型 UserProfile.role 字段一致。
     """
     if not is_authenticated():
@@ -950,7 +950,22 @@ def is_admin() -> bool:
     user_data = st.session_state.get("user_data")
     if not user_data:
         return False
-    return user_data.get("profile", {}).get("role") == "admin"
+    return user_data.get("profile", {}).get("role") in ("admin", "super_admin")
+
+
+def is_super_admin() -> bool:
+    """检查当前用户是否为超级管理员。
+
+    仅当用户已通过登录认证且角色为 super_admin 时返回 True。
+    """
+    if not is_authenticated():
+        return False
+    if get_auth_mode() == "guest":
+        return False
+    user_data = st.session_state.get("user_data")
+    if not user_data:
+        return False
+    return user_data.get("profile", {}).get("role") == "super_admin"
 
 
 def get_user_data() -> dict | None:

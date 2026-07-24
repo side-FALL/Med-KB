@@ -221,7 +221,7 @@ class UserProfile:
                 raise ValidationError("email", f"邮箱格式不合法: {self.email!r}")
         if self.created_at:
             validate_iso_datetime(self.created_at, "created_at")
-        if self.role not in ("user", "admin", "guest"):
+        if self.role not in ("user", "admin", "guest", "super_admin"):
             raise ValidationError("role", f"角色值不合法: {self.role!r}")
 
 
