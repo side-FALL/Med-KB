@@ -51,8 +51,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # 用户信息卡片
         "display_name": "显示名称",
         "username_label": "用户名",
-        "email_label": "邮箱",
-        "email_not_set": "未绑定",
         "role_label": "角色",
         "role_admin": "管理员",
         "role_user": "普通用户",
@@ -177,16 +175,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "password_old_wrong": "❌ 当前密码错误",
         "password_same_as_old": "❌ 新密码不能与旧密码相同",
         "password_change_failed": "⚠️ 密码修改失败：{error}",
-        "email_section_title": "绑定邮箱",
-        "email_current_label": "当前邮箱",
-        "email_not_bound": "未绑定",
-        "email_new_label": "新邮箱",
-        "email_verify_password": "当前密码验证",
-        "email_change_btn": "更新邮箱",
-        "email_changed_ok": "✅ 邮箱更新成功",
-        "email_invalid": "❌ 邮箱格式不正确",
-        "email_same_as_current": "❌ 新邮箱与当前邮箱相同",
-        "email_change_failed": "⚠️ 邮箱更新失败：{error}",
         # 关于页面增强
         "about_version_history_title": "📋 版本历史",
         "about_help_title": "📖 使用帮助",
@@ -209,8 +197,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # User info card
         "display_name": "Display Name",
         "username_label": "Username",
-        "email_label": "Email",
-        "email_not_set": "Not linked",
         "role_label": "Role",
         "role_admin": "Admin",
         "role_user": "User",
@@ -335,16 +321,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "password_old_wrong": "❌ Current password is incorrect",
         "password_same_as_old": "❌ New password cannot be the same as the old password",
         "password_change_failed": "⚠️ Password change failed: {error}",
-        "email_section_title": "Email",
-        "email_current_label": "Current Email",
-        "email_not_bound": "Not linked",
-        "email_new_label": "New Email",
-        "email_verify_password": "Current Password Verification",
-        "email_change_btn": "Update Email",
-        "email_changed_ok": "✅ Email updated successfully",
-        "email_invalid": "❌ Invalid email format",
-        "email_same_as_current": "❌ New email is the same as the current one",
-        "email_change_failed": "⚠️ Email update failed: {error}",
         # About page enhanced
         "about_version_history_title": "📋 Version History",
         "about_help_title": "📖 Help",
@@ -582,8 +558,6 @@ def render_user_info_section(username: str, auth_mode: str, admin: bool) -> None
             + _esc(t("role_user")) + "</span>"
         )
 
-    email = profile.get("email", "") or t("email_not_set")
-
     st.markdown(f"""
     <div class="settings-user-card">
         <div class="settings-user-head">
@@ -595,10 +569,6 @@ def render_user_info_section(username: str, auth_mode: str, admin: bool) -> None
             <div class="settings-user-field">
                 <span class="settings-field-label">{t('username_label')}</span>
                 <span class="settings-field-value">{_esc(profile.get('username', username))}</span>
-            </div>
-            <div class="settings-user-field">
-                <span class="settings-field-label">{t('email_label')}</span>
-                <span class="settings-field-value">{_esc(email)}</span>
             </div>
             <div class="settings-user-field">
                 <span class="settings-field-label">{t('registered_at')}</span>
@@ -1431,58 +1401,11 @@ def _handle_change_password(old_pwd: str, new_pwd: str, confirm_pwd: str) -> Non
         st.error(t("password_change_failed").format(error=str(exc)))
 
 
-def _handle_change_email(new_email: str, verify_pwd: str) -> None:
-    """处理绑定/修改邮箱逻辑（在 form submit 回调中调用）。
-
-    流程：验证当前密码 -> 校验邮箱格式 -> 全量更新。
-    """
-    from copy import deepcopy
-    from auth_logic import verify_password
-    from database_models import EMAIL_PATTERN
-
-    username = st.session_state.get("auth_username", "")
-    user_data = st.session_state.get("user_data") or {}
-    profile = user_data.get("profile", {}) or {}
-    stored_hash = profile.get("password_hash", "")
-    current_email = profile.get("email", "")
-
-    # 1. 验证当前密码
-    if not verify_password(verify_pwd, stored_hash):
-        st.error(t("password_old_wrong"))
-        return
-
-    # 2. 校验邮箱格式
-    new_email = new_email.strip()
-    if not new_email or not EMAIL_PATTERN.match(new_email):
-        st.error(t("email_invalid"))
-        return
-
-    # 3. 新旧邮箱不能相同
-    if new_email == current_email:
-        st.error(t("email_same_as_current"))
-        return
-
-    # 4. 全量更新
-    updated_data = deepcopy(user_data)
-    updated_data.setdefault("profile", {})["email"] = new_email
-
-    try:
-        from auth_components import get_data_manager
-        manager = get_data_manager()
-        result = manager.update_user(username, updated_data)
-        st.session_state["user_data"] = result
-        st.success(t("email_changed_ok"))
-    except Exception as exc:
-        logger.error("邮箱更新失败: %s", exc, exc_info=True)
-        st.error(t("email_change_failed").format(error=str(exc)))
-
-
 def render_account_security_section() -> None:
-    """渲染账号安全模块：修改密码、绑定/修改邮箱。
+    """渲染账号安全模块：修改密码。
 
     验收标准：
     - 修改密码：输入旧密码验证、新密码两次确认，规则与注册一致（至少8位含两种字符类型）
-    - 绑定/修改邮箱：需输入当前密码验证
     - 游客模式不显示（无持久化数据）
     """
     st.markdown(f"#### {t('security_title')}")
@@ -1490,10 +1413,6 @@ def render_account_security_section() -> None:
     if st.session_state.get("auth_mode_type") == "guest":
         st.info(t("security_guest_hint"))
         return
-
-    user_data = st.session_state.get("user_data") or {}
-    profile = user_data.get("profile", {}) or {}
-    current_email = profile.get("email", "")
 
     # ── 修改密码 ──
     with st.expander(t("change_password_title"), expanded=False):
@@ -1513,23 +1432,6 @@ def render_account_security_section() -> None:
             )
             if submitted:
                 _handle_change_password(old_pwd, new_pwd, confirm_pwd)
-
-    # ── 绑定/修改邮箱 ──
-    with st.expander(t("email_section_title"), expanded=False):
-        display_email = current_email if current_email else t("email_not_bound")
-        st.markdown(f"**{t('email_current_label')}：** {_esc(display_email)}")
-        with st.form("change_email_form", clear_on_submit=True):
-            new_email = st.text_input(
-                t("email_new_label"), placeholder="user@example.com", key="sec_new_email",
-            )
-            verify_pwd = st.text_input(
-                t("email_verify_password"), type="password", key="sec_email_pwd",
-            )
-            submitted = st.form_submit_button(
-                t("email_change_btn"), use_container_width=True, type="primary",
-            )
-            if submitted:
-                _handle_change_email(new_email, verify_pwd)
 
 
 # ── 关于页面 ─────────────────────────────────────────────

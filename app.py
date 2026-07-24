@@ -221,7 +221,7 @@ with mode[5]:
 
     st.divider()
 
-    # 账号安全（修改密码、绑定邮箱）
+    # 账号安全（修改密码）
     render_account_security_section()
 
     st.divider()
