@@ -197,11 +197,11 @@ def _render_system_stats(manager):
     with ca3:
         st.metric("本月活跃", active_month)
 
-    # ── 统计可视化（替代纯数字展示）──
-    st.markdown("**📊 统计概览图**")
+    # ── 统计概览表（替代柱状图，兼容 iframe 嵌入环境）──
+    st.markdown("**📊 统计概览**")
     try:
         import pandas as pd
-        chart_data = pd.DataFrame({
+        table_data = pd.DataFrame({
             "指标": ["总用户", "管理员", "普通用户", "今日活跃", "本周活跃", "本月活跃"],
             "数量": [
                 stats["total_users"], stats["admin_count"],
@@ -209,7 +209,7 @@ def _render_system_stats(manager):
                 active_today, active_week, active_month,
             ],
         })
-        st.bar_chart(chart_data.set_index("指标"), use_container_width=True)
+        st.dataframe(table_data, use_container_width=True, hide_index=True)
     except Exception:
         # pandas 不可用时静默降级（已有 metric 展示数字）
         pass
@@ -243,11 +243,10 @@ def _render_trend_charts(manager):
                 if daily_counts:
                     import pandas as pd
                     df = pd.DataFrame(
-                        sorted(daily_counts.items()),
+                        sorted(daily_counts.items(), reverse=True),
                         columns=["日期", "查询次数"],
                     )
-                    df = df.set_index("日期")
-                    st.line_chart(df, use_container_width=True)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
                 else:
                     st.caption("暂无查询记录")
             else:
@@ -280,8 +279,12 @@ def _render_trend_charts(manager):
                     for c in counts:
                         running += c
                         cumulative.append(running)
-                    df = pd.DataFrame({"用户总数": cumulative}, index=dates)
-                    st.line_chart(df, use_container_width=True)
+                    df = pd.DataFrame(
+                        {"日期": dates, "新增用户": counts, "用户总数": cumulative}
+                    )
+                    # 最近数据在前
+                    df = df.sort_values("日期", ascending=False).reset_index(drop=True)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
                 else:
                     st.caption("暂无注册记录")
             else:
@@ -324,20 +327,19 @@ def _render_mode_usage(manager):
         st.caption("暂无模式使用数据")
         return
 
-    col_chart, col_detail = st.columns([3, 1])
-
-    with col_chart:
-        import pandas as pd
-        df = pd.DataFrame(
-            list(mode_counts.items()), columns=["模式", "次数"],
-        )
-        st.bar_chart(df.set_index("模式"), use_container_width=True)
-
-    with col_detail:
-        total = sum(mode_counts.values())
-        for mode, count in sorted(mode_counts.items(), key=lambda x: -x[1]):
-            pct = round(count / total * 100, 1) if total > 0 else 0
-            st.text(f"{mode}: {count} ({pct}%)")
+    # 模式分布表（替代柱状图，兼容 iframe 嵌入环境）
+    import pandas as pd
+    total = sum(mode_counts.values())
+    rows = [
+        {
+            "模式": mode,
+            "次数": count,
+            "占比": f"{round(count / total * 100, 1)}%" if total > 0 else "0%",
+        }
+        for mode, count in sorted(mode_counts.items(), key=lambda x: -x[1])
+    ]
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 def _render_system_config(manager):
