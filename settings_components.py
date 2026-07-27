@@ -145,6 +145,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records_csv": "📥 学习记录 CSV",
         "dm_export_records_json": "📥 学习记录 JSON",
         "dm_export_records_md": "📥 学习记录 Markdown",
+        "dm_export_records_csv_help": "表格数据，适合用 Excel 统计分析",
+        "dm_export_records_json_help": "结构化完整数据，适合程序处理或备份",
+        "dm_export_records_md_help": "包含完整输出内容的可读文档，适合阅读分享",
         "dm_backup": "数据备份",
         "dm_backup_btn": "📤 导出全部数据",
         "dm_backup_help": "导出你的所有设置和数据为 JSON 文件，可用于备份或迁移",
@@ -294,6 +297,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_export_records_csv": "📥 Records CSV",
         "dm_export_records_json": "📥 Records JSON",
         "dm_export_records_md": "📥 Records Markdown",
+        "dm_export_records_csv_help": "Tabular data, best for analysis in Excel",
+        "dm_export_records_json_help": "Structured complete data, best for programmatic processing or backup",
+        "dm_export_records_md_help": "Readable document with full output content, best for reading and sharing",
         "dm_backup": "Data Backup",
         "dm_backup_btn": "📤 Export All Data",
         "dm_backup_help": "Export all your settings and data as a JSON file for backup or migration",
@@ -1423,7 +1429,9 @@ def render_data_management_section() -> None:
             key="dm_export_records_csv",
             use_container_width=True,
             disabled=not hist,
+            help=t("dm_export_records_csv_help"),
         )
+        st.caption(t("dm_export_records_csv_help"))
     with c2:
         st.download_button(
             t("dm_export_records_json"),
@@ -1433,7 +1441,9 @@ def render_data_management_section() -> None:
             key="dm_export_records_json",
             use_container_width=True,
             disabled=not hist,
+            help=t("dm_export_records_json_help"),
         )
+        st.caption(t("dm_export_records_json_help"))
     with c3:
         st.download_button(
             t("dm_export_records_md"),
@@ -1443,7 +1453,9 @@ def render_data_management_section() -> None:
             key="dm_export_records_md",
             use_container_width=True,
             disabled=not hist,
+            help=t("dm_export_records_md_help"),
         )
+        st.caption(t("dm_export_records_md_help"))
 
     st.divider()
 
