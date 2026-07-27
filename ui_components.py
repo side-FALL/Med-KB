@@ -286,12 +286,13 @@ def render_update_announcement():
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
             <h4>v2.2.5 更新公告</h4>
-            <p><strong>登录性能优化 + 功能增强：</strong></p>
+            <p><strong>设置与管理面板全面增强：</strong></p>
             <ul>
-                <li>⚡ 登录优化：响应时间 < 2秒，加载状态提示</li>
+                <li>⚙️ 设置增强：用户偏好、教材管理、搜索历史、学习统计、数据导出</li>
+                <li>🛡️ 管理增强：用户管理、统计图表、操作日志、管理员互保</li>
+                <li>📊 界面优化：移除侧边栏，统计改表格，兼容 iframe</li>
+                <li>⚡ 登录优化：响应时间 < 2秒，加载状态，错误提示</li>
                 <li>📤 导出增强：各模式添加导出 Markdown 按钮</li>
-                <li>📊 统计改表格：图表改为表格，兼容 iframe</li>
-                <li>🛡️ 权限加固：管理员互相保护机制</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
                 注册账号可保存学习数据，游客模式不保存
