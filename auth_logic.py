@@ -205,10 +205,13 @@ def login_user(
 
     登录流程：
     1. 验证输入格式（后端防御层）
-    2. 检查用户名是否存在
+    2. 检查用户名是否存在（优化：单 key 读取，O(1)）
     3. 验证密码（支持 bcrypt 和旧版 SHA-256 向后兼容）
-    4. 加载用户数据
+    4. 更新登录统计（优化：单 key 写入，O(1)）
     5. 返回用户数据或错误信息
+
+    性能优化：使用 get_user_for_login 和 record_login_success 的优化路径，
+    将网络请求从 O(N) 降至 O(1)，正常网络下服务端耗时 < 2 秒。
 
     Args:
         username: 用户名
@@ -220,6 +223,7 @@ def login_user(
         - 成功时：(user_data, None)
         - 失败时：(None, error_message)
     """
+    t_start = time.time()
     try:
         # 0. 后端输入验证（防御层：即使前端已验证，后端也做基本校验）
         if not username or not username.strip():
@@ -238,8 +242,14 @@ def login_user(
             logger.warning("用户 %s 登录被拒绝：请求过于频繁", username)
             return None, "登录尝试过于频繁，请稍后重试"
 
-        # 1. 获取用户数据（只读，不更新活跃时间）
-        user_data, error_msg = user_data_manager.safe_get_user(username)
+        # 1. 获取用户数据（优化：单 key 读取，避免加载全部用户）
+        t_read = time.time()
+        if hasattr(user_data_manager, 'get_user_for_login'):
+            user_data, error_msg = user_data_manager.get_user_for_login(username)
+        else:
+            user_data, error_msg = user_data_manager.safe_get_user(username)
+        t_read_done = time.time()
+        logger.debug("登录步骤1(读取用户): %.3fs", t_read_done - t_read)
 
         if error_msg:
             # 用户不存在或其他错误
@@ -263,6 +273,7 @@ def login_user(
 
         # 检查是否为 bcrypt 格式（以 $2b$ 或 $2a$ 开头）
         needs_migration = False
+        t_verify = time.time()
         if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
             # bcrypt 格式
             password_matched = verify_password(password, stored_hash)
@@ -281,6 +292,8 @@ def login_user(
             # 未知格式，拒绝登录
             logger.error("用户 %s 的密码哈希格式未知", username)
             password_matched = False
+        t_verify_done = time.time()
+        logger.debug("登录步骤2(密码验证): %.3fs", t_verify_done - t_verify)
 
         if not password_matched:
             _login_rate_limiter.record_failure(username)
@@ -301,9 +314,17 @@ def login_user(
 
         # 3. 密码正确，清除限流记录，复用已获取的数据更新登录统计
         _login_rate_limiter.record_success(username)
+        t_write = time.time()
         user_data_full = user_data_manager.record_login_success(username, user_data)
+        t_write_done = time.time()
+        logger.debug("登录步骤3(写入统计): %.3fs", t_write_done - t_write)
 
-        logger.info("用户登录成功: %s", username)
+        t_total = time.time() - t_start
+        logger.info("用户登录成功: %s (总耗时 %.3fs: 读取 %.3fs + 验证 %.3fs + 写入 %.3fs)",
+                     username, t_total,
+                     t_read_done - t_read,
+                     t_verify_done - t_verify,
+                     t_write_done - t_write)
         return user_data_full, None
 
     except Exception as exc:
