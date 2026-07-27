@@ -285,7 +285,7 @@ def render_update_announcement():
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.4 更新公告</h4>
+            <h4>v2.2.5 更新公告</h4>
             <p><strong>存储优化 + Bug修复：</strong></p>
             <ul>
                 <li>☁️ 存储升级：用户数据迁移到 Upstash Redis，JSONBin 备用降级</li>
