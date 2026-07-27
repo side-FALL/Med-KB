@@ -730,6 +730,55 @@ def _render_loading(message: str):
 
 # ── 注册/登录处理 ────────────────────────────────────────
 
+def _classify_login_error(error_msg: str) -> tuple[str, str, str]:
+    """将后端登录错误信息归类，返回 (类别, 展示标题, 补充提示)。
+
+    类别：
+    - ``user_not_found``：用户名不存在
+    - ``wrong_password``：密码错误
+    - ``rate_limited``：尝试过于频繁 / 账户锁定
+    - ``account_disabled``：账户被禁用
+    - ``storage_unavailable``：存储服务不可用 / 系统异常
+    - ``input_error``：输入缺失（前端防御层已拦截，兜底）
+    - ``unknown``：其他未分类错误
+    """
+    msg = error_msg or ""
+    if "不存在" in msg:
+        return (
+            "user_not_found",
+            "用户名不存在",
+            "请检查用户名拼写；还没有账号可点击下方「注册新账号」。",
+        )
+    if "密码错误" in msg:
+        return (
+            "wrong_password",
+            "密码错误",
+            "请重新输入密码；如忘记密码，请联系管理员重置。",
+        )
+    if "频繁" in msg or "锁定" in msg or "次数过多" in msg:
+        # 限流/锁定信息由后端给出具体文案，直接透传
+        return (
+            "rate_limited",
+            msg,
+            "为保护账号安全已临时限制登录，请稍后再试。",
+        )
+    if "禁用" in msg:
+        return (
+            "account_disabled",
+            "账户已被禁用",
+            "该账户已被管理员禁用，如有疑问请联系管理员。",
+        )
+    if any(k in msg for k in ("数据加载失败", "网络", "系统异常", "稍后重试", "登录失败")):
+        return (
+            "storage_unavailable",
+            "存储服务暂时不可用",
+            "登录服务连接异常，请稍后重试；如持续失败，请检查网络连接。",
+        )
+    if "请输入" in msg:
+        return ("input_error", msg, "")
+    return ("unknown", msg or "登录失败，请稍后重试", "")
+
+
 def _get_or_create_manager() -> "UserDataManager":
     """获取或创建 UserDataManager 单例（存储在 session_state 中）。"""
     if "auth_data_manager" not in st.session_state:
@@ -775,33 +824,41 @@ def _handle_login(username: str, password: str, on_submit_callback=None):
     """处理登录提交。
 
     流程：
-    1. 显示加载状态（st.spinner 提供可见的加载指示）
+    1. 显示加载状态（st.spinner 在认证期间持续展示，直到结果返回）
     2. 调用 auth_logic.login_user
-    3. 成功 → 设置认证状态并跳转
-    4. 失败 → 显示错误提示
+    3. 成功 → 设置认证状态并跳转（set_auth_success 内部清除加载态，无残留）
+    4. 失败 → 按失败类型内联展示明确错误信息（用户名不存在 / 密码错误 /
+       存储服务不可用 / 限流锁定 / 账户禁用），不做额外 st.rerun()，
+       避免按钮已触发重跑后的双重重启
     """
     # 获取管理器
     manager = _get_or_create_manager()
 
-    # 使用 st.spinner 提供可见的加载状态提示
-    with st.spinner("正在登录，请稍候..."):
+    # 使用 st.spinner 提供可见的加载状态提示（覆盖整个认证调用期间）
+    with st.spinner("正在验证账号信息，请稍候…"):
         # 调用登录逻辑
         user_data, error_msg = login_user(username, password, manager)
 
     if error_msg:
-        # 登录失败
-        st.session_state["login_error"] = error_msg
-        st.rerun()
-    else:
-        # 登录成功
-        st.session_state["login_success"] = True
+        # 登录失败：按类型展示错误，限流场景用 warning 以区别于凭据错误
+        category, title, hint = _classify_login_error(error_msg)
+        if category == "rate_limited":
+            st.warning(f"⚠️ {title}")
+        else:
+            st.error(f"❌ {title}")
+        if hint:
+            st.caption(hint)
+        return
 
-        # 先存储用户数据，再设置认证状态（set_auth_success 需读取 user_data 恢复 model_authed）
-        st.session_state["user_data"] = user_data
-        set_auth_success(username, "login")
+    # 登录成功
+    st.session_state["login_success"] = True
 
-        # 跳转
-        st.rerun()
+    # 先存储用户数据，再设置认证状态（set_auth_success 需读取 user_data 恢复 model_authed）
+    st.session_state["user_data"] = user_data
+    set_auth_success(username, "login")
+
+    # 跳转到主界面
+    st.rerun()
 
 
 # ── 主入口 ───────────────────────────────────────────────
