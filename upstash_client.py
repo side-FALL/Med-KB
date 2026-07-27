@@ -55,6 +55,10 @@ class UpstashClient:
         self._token = token or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip('"')
         self._available = bool(self._url and self._token)
         self._last_read_from_fallback = False
+        # 显式能力标记：支持单 key 读写（get_user_by_name / set_user_by_name / get_meta / set_meta）
+        # UserDataManager 通过 `getattr(client, 'supports_single_key_ops', False) is True`
+        # 检测此能力，避免 hasattr 在 MagicMock 测试替身下误判（MagicMock 自动生成任意属性）
+        self.supports_single_key_ops = True
         # 降级期间暂存的动态数据：{username: {"learning_records": [...], "stats": {...}}}
         self._pending_dynamic: dict[str, dict] = {}
         try:

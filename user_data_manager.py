@@ -450,7 +450,9 @@ class UserDataManager:
             (用户数据或 None, 错误信息或 None)
         """
         try:
-            if hasattr(self._client, 'get_user_by_name'):
+            # 使用显式能力标记检测，避免 hasattr 对 MagicMock 测试替身误判
+            # （MagicMock 自动生成任意属性，hasattr 恒为 True）
+            if getattr(self._client, 'supports_single_key_ops', False) is True:
                 user_data = self._client.get_user_by_name(username)
                 if user_data is None:
                     return None, f"用户 {username!r} 不存在"
@@ -491,13 +493,14 @@ class UserDataManager:
             self._touch_active(user_data)
 
             # 优化路径：单 key 写入用户数据 + 单 key 写入 meta 日志
-            if hasattr(self._client, 'set_user_by_name') and hasattr(self._client, 'get_meta'):
+            # 使用显式能力标记检测，避免 hasattr 对 MagicMock 测试替身误判
+            if getattr(self._client, 'supports_single_key_ops', False) is True:
                 try:
                     self._client.set_user_by_name(username, user_data)
                     self._append_login_log_to_meta(username)
                     logger.info("登录成功记录完成(优化路径): %s", username)
                     return user_data
-                except (JSONBinError, Exception) as exc:
+                except Exception as exc:
                     logger.warning("优化路径写入失败，回退到完整路径: %s", exc)
 
             # 回退路径：完整读写

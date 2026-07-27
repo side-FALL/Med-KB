@@ -308,6 +308,8 @@ def login_user(
                     username,
                     {"profile": {**user_data.get("profile", {}), "password_hash": new_hash}},
                 )
+                # 同步更新本地 user_data，避免 record_login_success 将旧哈希写回存储
+                user_data.setdefault("profile", {})["password_hash"] = new_hash
                 logger.info("用户 %s 的密码已从 SHA-256 迁移到 bcrypt", username)
             except Exception as mig_exc:
                 logger.error("用户 %s 密码迁移失败: %s", username, mig_exc, exc_info=True)
