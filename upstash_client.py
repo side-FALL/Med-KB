@@ -1,10 +1,20 @@
-"""Upstash Redis REST API client for med-kb, replacing jsonbin_client."""
+"""Upstash Redis REST API client for med-kb, replacing jsonbin_client.
+
+降级存储策略：
+- Redis 可用时：完整数据写入 Redis（按用户独立 key）
+- Redis 不可用时：JSONBin 仅存储基础用户信息（profile/preferences），
+  动态数据（learning_records/stats）暂存内存队列，Redis 恢复后补同步
+"""
 
 import json
+import logging
 import os
+from copy import deepcopy
 from typing import Any, Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class UpstashError(Exception):
@@ -23,8 +33,16 @@ class UpstashRequestError(UpstashError):
     """General request error."""
 
 
+# JSONBin 降级时不存储的动态数据字段
+_DYNAMIC_FIELDS = frozenset({"learning_records", "stats"})
+
+
 class UpstashClient:
-    """Upstash Redis REST API client with JSONBin fallback."""
+    """Upstash Redis REST API client with JSONBin fallback.
+
+    降级策略：Redis 不可用时，JSONBin 仅写入基础用户信息（profile/preferences），
+    动态数据（learning_records/stats）暂存内存，Redis 恢复后自动补同步。
+    """
 
     TIMEOUT = 10
 
@@ -37,6 +55,8 @@ class UpstashClient:
         self._token = token or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip('"')
         self._available = bool(self._url and self._token)
         self._last_read_from_fallback = False
+        # 降级期间暂存的动态数据：{username: {"learning_records": [...], "stats": {...}}}
+        self._pending_dynamic: dict[str, dict] = {}
         try:
             from jsonbin_client import JSONBinClient
             self._jsonbin = JSONBinClient()
@@ -46,6 +66,11 @@ class UpstashClient:
     @property
     def is_degraded(self) -> bool:
         return self._last_read_from_fallback
+
+    @property
+    def has_pending_dynamic(self) -> bool:
+        """是否有待补同步的动态数据。"""
+        return bool(self._pending_dynamic)
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self._token}"}
@@ -103,10 +128,134 @@ class UpstashClient:
                 f"HTTP {resp.status_code}: {resp.text}"
             )
 
+    # ── 降级数据过滤 ──
+
+    @staticmethod
+    def _filter_for_jsonbin(data: dict) -> dict:
+        """过滤用户数据，仅保留基础信息用于 JSONBin 降级存储。
+
+        JSONBin 降级时不存储动态数据（learning_records、stats），
+        仅保留 profile（用户名、密码哈希、角色、偏好设置）和 preferences。
+        """
+        filtered = deepcopy(data)
+        users = filtered.get("users", {})
+        for username in users:
+            user_data = users[username]
+            if isinstance(user_data, dict):
+                for field in _DYNAMIC_FIELDS:
+                    user_data.pop(field, None)
+        return filtered
+
+    def _save_pending_dynamic(self, data: dict) -> None:
+        """从完整数据中提取动态字段并暂存到内存队列。"""
+        users = data.get("users", {})
+        for username, user_data in users.items():
+            if not isinstance(user_data, dict):
+                continue
+            dynamic = {}
+            if "learning_records" in user_data:
+                dynamic["learning_records"] = deepcopy(user_data["learning_records"])
+            if "stats" in user_data:
+                dynamic["stats"] = deepcopy(user_data["stats"])
+            if dynamic:
+                self._pending_dynamic[username] = dynamic
+
+    def _merge_pending_into_record(self, record: dict) -> dict:
+        """将暂存的动态数据合并到从 JSONBin 读取的记录中。
+
+        降级期间读取时，将内存中的动态数据补回，使调用方看到完整数据。
+        """
+        if not self._pending_dynamic:
+            return record
+        record = deepcopy(record)
+        users = record.get("users", {})
+        for username, pending in self._pending_dynamic.items():
+            if username in users and isinstance(users[username], dict):
+                if "learning_records" in pending:
+                    users[username]["learning_records"] = deepcopy(pending["learning_records"])
+                if "stats" in pending:
+                    users[username]["stats"] = deepcopy(pending["stats"])
+        record["users"] = users
+        return record
+
+    def _try_resync_pending(self) -> None:
+        """Redis 恢复后，将降级期间的动态数据补写回 Redis。
+
+        使用低层 API 直接操作，避免递归调用 update_record。
+        失败时静默保留暂存队列，等待下次触发。
+        """
+        if not self._pending_dynamic:
+            return
+
+        try:
+            # 读取当前 Upstash 中的用户数据
+            user_keys = self._keys("user:*")
+            current_users: dict = {}
+            for key in user_keys:
+                val = self._get(key)
+                uid = key.split("user:", 1)[1] if "user:" in key else key
+                current_users[uid] = json.loads(val) if isinstance(val, str) else val
+
+            # 合并暂存的动态数据（取较大值，防止回退）
+            for username, pending in self._pending_dynamic.items():
+                if username not in current_users:
+                    continue
+                user_data = current_users[username]
+                if not isinstance(user_data, dict):
+                    continue
+
+                # 学习记录：合并去重（按 timestamp）
+                if "learning_records" in pending:
+                    existing = user_data.get("learning_records", [])
+                    pending_records = pending["learning_records"]
+                    existing_timestamps = {
+                        r.get("timestamp") for r in existing if isinstance(r, dict)
+                    }
+                    for rec in pending_records:
+                        if isinstance(rec, dict) and rec.get("timestamp") not in existing_timestamps:
+                            existing.append(rec)
+                    user_data["learning_records"] = existing
+
+                # 统计数据：取较大值
+                if "stats" in pending:
+                    existing_stats = user_data.get("stats", {})
+                    pending_stats = pending["stats"]
+                    for stat_key, stat_val in pending_stats.items():
+                        if isinstance(stat_val, (int, float)):
+                            existing_stats[stat_key] = max(
+                                existing_stats.get(stat_key, 0), stat_val
+                            )
+                        elif isinstance(stat_val, list):
+                            # favorite_topics 等列表字段取较长列表
+                            if len(stat_val) > len(existing_stats.get(stat_key, [])):
+                                existing_stats[stat_key] = stat_val
+                        else:
+                            existing_stats[stat_key] = stat_val
+                    user_data["stats"] = existing_stats
+
+                current_users[username] = user_data
+
+            # 写回 Upstash
+            old_keys = self._keys("user:*")
+            for k in old_keys:
+                self._del(k)
+            for uid, info in current_users.items():
+                self._set(f"user:{uid}", info)
+
+            # 补同步成功，清空暂存队列
+            self._pending_dynamic.clear()
+            logger.info("降级期间动态数据已补同步回 Redis")
+
+        except UpstashError as exc:
+            logger.warning("动态数据补同步失败，保留暂存队列等待下次重试: %s", exc)
+
     # ── public API ──
 
     def get_record(self) -> dict:
-        """Read full record with Upstash → JSONBin fallback."""
+        """Read full record with Upstash → JSONBin fallback.
+
+        降级读取时，自动将内存暂存的动态数据合并到返回结果中。
+        """
         self._last_read_from_fallback = False
 
         if self._available:
@@ -127,6 +276,8 @@ class UpstashClient:
             try:
                 record = self._jsonbin.get_record()
                 self._last_read_from_fallback = True
+                # 合并暂存的动态数据，使调用方看到完整数据
+                record = self._merge_pending_into_record(record)
                 return record
             except Exception:
                 pass
@@ -134,7 +285,11 @@ class UpstashClient:
         raise UpstashRequestError("所有存储后端均不可用，请稍后重试")
 
     def update_record(self, data: dict) -> None:
-        """Write the record with Upstash primary, JSONBin backup on failure."""
+        """Write the record with Upstash primary, JSONBin backup on failure.
+
+        降级到 JSONBin 时：仅写入基础用户信息，动态数据暂存内存。
+        Redis 恢复写入时：自动触发补同步，将暂存的动态数据写回 Redis。
+        """
         if self._available:
             try:
                 users = data.get("users", {})
@@ -145,13 +300,18 @@ class UpstashClient:
                 for uid, info in users.items():
                     self._set(f"user:{uid}", info)
                 self._set("meta", meta)
+                # Redis 写入成功后，尝试补同步降级期间的动态数据
+                self._try_resync_pending()
                 return
             except UpstashError:
                 pass
 
+        # 降级到 JSONBin：仅存储基础用户信息，动态数据暂存内存
         if self._jsonbin:
             try:
-                self._jsonbin.update_record(data)
+                self._save_pending_dynamic(data)
+                filtered = self._filter_for_jsonbin(data)
+                self._jsonbin.update_record(filtered)
                 return
             except Exception:
                 pass
