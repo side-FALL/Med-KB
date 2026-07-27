@@ -437,16 +437,42 @@ class UserDataManager:
             logger.info("用户数据读取成功: %s", username)
             return user_data
 
-    def record_login_success(self, username: str, user_data: dict) -> dict:
-        """登录成功后更新统计并保存（接受已获取的 user_data，避免重复网络读取）。
+    def get_user_for_login(self, username: str) -> tuple[Optional[dict], Optional[str]]:
+        """登录优化：直接读取单个用户 key，避免加载全部用户数据。
 
-        在一次 locked 操作中完成：读取根数据 → 更新登录计数 → 更新活跃时间 → 记录日志 → 保存。
-        与 safe_get_user 配合使用时，总网络调用为 1次读 + 1次写（相比 get_user 的 1次读 + 1次写
-        再加 safe_get_user 的 1次读，节省一次 Upstash 读取请求）。
+        使用 UpstashClient.get_user_by_name 进行单 key 读取，
+        将登录读操作从 O(N) HTTP 请求降至 O(1)。
 
         Args:
             username: 用户名
-            user_data: safe_get_user 返回的用户数据（会在此基础上更新统计）
+
+        Returns:
+            (用户数据或 None, 错误信息或 None)
+        """
+        try:
+            if hasattr(self._client, 'get_user_by_name'):
+                user_data = self._client.get_user_by_name(username)
+                if user_data is None:
+                    return None, f"用户 {username!r} 不存在"
+                return deepcopy(user_data), None
+            # 回退：不支持单 key 读取的客户端
+            return self.safe_get_user(username)
+        except JSONBinError as exc:
+            logger.warning("登录读取用户失败: %s", exc)
+            return None, "数据加载失败，请稍后重试。如持续失败，请检查网络连接。"
+        except Exception as exc:
+            logger.error("登录读取用户异常: %s", exc, exc_info=True)
+            return None, "系统异常，请稍后重试"
+
+    def record_login_success(self, username: str, user_data: dict) -> dict:
+        """登录成功后更新统计并保存（接受已获取的 user_data，避免重复网络读取）。
+
+        优化路径：直接写入单个用户 key + 追加 meta 日志，避免重写全部用户。
+        回退路径：当优化路径失败时，使用完整读写流程。
+
+        Args:
+            username: 用户名
+            user_data: get_user_for_login 返回的用户数据（会在此基础上更新统计）
 
         Returns:
             更新后的用户数据字典
@@ -456,12 +482,6 @@ class UserDataManager:
             DataOperationError: 操作失败
         """
         with self._lock:
-            root = self._ensure_initialized()
-            users = root.get("users", {})
-
-            if username not in users:
-                raise UserNotFoundError(f"用户 {username!r} 不存在")
-
             # 更新登录统计
             stats = user_data.get("stats", {})
             stats["login_count"] = stats.get("login_count", 0) + 1
@@ -469,6 +489,23 @@ class UserDataManager:
 
             # 更新活跃时间
             self._touch_active(user_data)
+
+            # 优化路径：单 key 写入用户数据 + 单 key 写入 meta 日志
+            if hasattr(self._client, 'set_user_by_name') and hasattr(self._client, 'get_meta'):
+                try:
+                    self._client.set_user_by_name(username, user_data)
+                    self._append_login_log_to_meta(username)
+                    logger.info("登录成功记录完成(优化路径): %s", username)
+                    return user_data
+                except (JSONBinError, Exception) as exc:
+                    logger.warning("优化路径写入失败，回退到完整路径: %s", exc)
+
+            # 回退路径：完整读写
+            root = self._ensure_initialized()
+            users = root.get("users", {})
+
+            if username not in users:
+                raise UserNotFoundError(f"用户 {username!r} 不存在")
 
             users[username] = user_data
             root["users"] = users
@@ -480,8 +517,26 @@ class UserDataManager:
             )
 
             self._save_root(root)
-            logger.info("登录成功记录完成: %s", username)
+            logger.info("登录成功记录完成(回退路径): %s", username)
             return user_data
+
+    def _append_login_log_to_meta(self, username: str) -> None:
+        """追加登录日志到 meta key（不读取完整根数据）。
+
+        登录优化路径专用：仅读写 meta key，避免加载全部用户。
+        失败时静默（日志记录不影响登录结果）。
+        """
+        try:
+            meta = self._client.get_meta()
+            logs = meta.get("logs", create_default_logs())
+            sanitized_username = _sanitize_log_value(username)
+            meta["logs"] = add_operation_log(
+                logs, action="login", username=sanitized_username,
+                detail=f"用户登录: {username}",
+            )
+            self._client.set_meta(meta)
+        except Exception as exc:
+            logger.warning("追加登录日志到 meta 失败: %s", exc)
 
     def get_user_readonly(self, username: str) -> dict:
         """只读获取用户数据（不更新活跃时间和登录统计）。

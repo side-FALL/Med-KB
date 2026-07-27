@@ -249,6 +249,103 @@ class UpstashClient:
         except UpstashError as exc:
             logger.warning("动态数据补同步失败，保留暂存队列等待下次重试: %s", exc)
 
+    # ── 单用户快速读写（登录优化路径） ──
+
+    def get_user_by_name(self, username: str) -> Optional[dict]:
+        """Read a single user's data directly from Redis by key.
+
+        登录优化路径：避免加载全部用户，仅读取目标用户的单个 key。
+        Redis 不可用时回退到 JSONBin 全量读取。
+
+        Args:
+            username: 用户名
+
+        Returns:
+            用户数据字典，不存在返回 None
+
+        Raises:
+            UpstashRequestError: 所有存储后端均不可用
+        """
+        self._last_read_from_fallback = False
+
+        if self._available:
+            try:
+                val = self._get(f"user:{username}")
+                if val is None:
+                    return None
+                return json.loads(val) if isinstance(val, str) else val
+            except UpstashError:
+                pass
+
+        # Fallback: JSONBin 全量读取后提取单用户
+        if self._jsonbin:
+            try:
+                record = self._jsonbin.get_record()
+                self._last_read_from_fallback = True
+                record = self._merge_pending_into_record(record)
+                users = record.get("users", {})
+                return users.get(username)
+            except Exception:
+                pass
+
+        raise UpstashRequestError("所有存储后端均不可用，请稍后重试")
+
+    def set_user_by_name(self, username: str, data: dict) -> None:
+        """Write a single user's data directly to Redis by key.
+
+        登录优化路径：避免重写全部用户，仅更新目标用户的单个 key。
+        Redis 不可用时不回退到 JSONBin（动态数据不静默降级）。
+
+        Args:
+            username: 用户名
+            data: 用户数据字典
+
+        Raises:
+            UpstashRequestError: Redis 不可用
+        """
+        if self._available:
+            try:
+                self._set(f"user:{username}", data)
+                return
+            except UpstashError:
+                pass
+
+        raise UpstashRequestError("Redis 不可用，无法写入用户数据")
+
+    def get_meta(self) -> dict:
+        """Read meta data directly from Redis.
+
+        登录优化路径：仅读取 meta key，避免加载全部用户。
+
+        Returns:
+            meta 数据字典，不可用时返回空字典
+        """
+        if self._available:
+            try:
+                val = self._get("meta")
+                if val is None:
+                    return {}
+                return json.loads(val) if isinstance(val, str) else val
+            except UpstashError:
+                pass
+        return {}
+
+    def set_meta(self, meta: dict) -> None:
+        """Write meta data directly to Redis.
+
+        登录优化路径：仅写入 meta key，避免重写全部用户。
+
+        Raises:
+            UpstashRequestError: Redis 不可用
+        """
+        if self._available:
+            try:
+                self._set("meta", meta)
+                return
+            except UpstashError:
+                pass
+        raise UpstashRequestError("Redis 不可用，无法写入元数据")
+
     # ── public API ──
 
     def get_record(self) -> dict:
