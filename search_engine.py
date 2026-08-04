@@ -4,6 +4,7 @@
 """
 
 import re
+from functools import lru_cache
 
 import numpy as np
 import streamlit as st
@@ -28,6 +29,17 @@ def _tokenize(text: str) -> list[str]:
         if bg not in _STOPWORDS:
             tokens.append(bg)
     return tokens
+
+
+@lru_cache(maxsize=4000)
+def _doc_token_set(text: str) -> frozenset:
+    """文档分词结果缓存（按文本内容去重）。
+
+    同一文档块在多次查询中只分词一次，避免重点总结等多条目场景下
+    对同一批文档反复执行正则分词 + bigram 生成的纯 CPU 浪费。
+    frozenset 可哈希；maxsize=4000 覆盖单本书文档数并留余量。
+    """
+    return frozenset(_tokenize(text))
 
 
 # ── Embedding 客户端 ────────────────────────────────────
@@ -106,7 +118,7 @@ def _search_core(
     if query_tokens:
         q_len = len(query_tokens)
         for local_idx in top_candidates:
-            doc_tokens = set(_tokenize(documents[local_idx]))
+            doc_tokens = _doc_token_set(documents[local_idx])
             bm25_scores[local_idx] = len(query_tokens & doc_tokens) / q_len
 
     hybrid_scores = alpha * vec_scores + (1 - alpha) * bm25_scores

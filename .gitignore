@@ -11,3 +11,5 @@ workspace_mimo/
 
 books/_ocr_source/
 .env
+
+.vscode/

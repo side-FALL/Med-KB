@@ -14,6 +14,7 @@
 """
 
 import logging
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -432,35 +433,66 @@ def render(
                     status.update(label="❌ API Key 缺失", state="error")
                     st.stop()
 
-                # 逐板块：检索 -> 流式生成，结果实时拼接到 full_answer
-                status.update(label="⚡ 正在检索并流式生成...")
-                full_answer = ""
-                # 流式输出占位符（status 展开期间可见；完成后由下方 section 4 重渲染）
-                ans_placeholder = st.empty()
+                # ── 检索阶段全部前置（#3：检索不阻塞流式显示）──
+                status.update(label="🔍 正在检索教材段落...")
+                sections_data = []  # [(label, stype, items_with_hits)]
                 for section_key, stype, label, _use_table in _SECTION_META:
                     items = parsed.get(section_key, [])
                     if not items:
                         continue
                     st.write(f"检索「{label}」板块（{len(items)} 条）...")
-                    items_with_hits = _collect_items_with_hits(
+                    iwh = _collect_items_with_hits(
                         items, _search_fn, k=_SUMMARY_SEARCH_K,
                     )
-                    if not items_with_hits:
-                        continue
-                    user_msg = build_summary_message(stype, items_with_hits)
-                    full_answer += f"\n\n## {label}\n\n"
-                    ans_placeholder.markdown(fix_latex_formulas(full_answer))
-                    # 流式逐 token 输出（复用 call_llm_stream，带超时与 429 重试）
-                    for chunk in call_llm_stream(
-                        api_key, user_msg,
-                        api_url=api_url, model=model_id,
-                        system_prompt=SUMMARY_SYSTEM_PROMPT,
-                        max_tokens=3000,
-                    ):
-                        full_answer += chunk
+                    if iwh:
+                        sections_data.append((label, stype, iwh))
+
+                # ── 流式生成阶段 ──
+                # #1 节流：避免每 token 对全量 full_answer 重算 fix_latex（O(n²)）
+                # #4 错误隔离：单板块失败不丢失其他板块
+                # #5 空兜底：流式无输出时标注提示
+                # #6 超时：整体超阈值主动停止，保留已生成部分
+                status.update(label="⚡ 正在流式生成总结...")
+                full_answer = ""
+                ans_placeholder = st.empty()
+                overall_start = time.time()
+                _OVERALL_TIMEOUT = 120  # 整体超时（秒）
+                _FLUSH_INTERVAL = 0.3   # 流式刷新节流（秒）
+                last_flush = 0.0
+
+                for label, stype, items_with_hits in sections_data:
+                    # #6 整体超时检查
+                    if time.time() - overall_start > _OVERALL_TIMEOUT:
+                        full_answer += "\n\n⚠️ 生成超时，已停止。以上为已生成的部分结果。\n"
+                        break
+                    # #4 逐板块错误隔离
+                    try:
+                        user_msg = build_summary_message(stype, items_with_hits)
+                        full_answer += f"\n\n## {label}\n\n"
                         ans_placeholder.markdown(fix_latex_formulas(full_answer))
-                    full_answer += "\n"
-                    ans_placeholder.markdown(fix_latex_formulas(full_answer))
+                        section_text = ""
+                        for chunk in call_llm_stream(
+                            api_key, user_msg,
+                            api_url=api_url, model=model_id,
+                            system_prompt=SUMMARY_SYSTEM_PROMPT,
+                            max_tokens=3000,
+                        ):
+                            section_text += chunk
+                            full_answer += chunk
+                            # #1 节流：最多每 _FLUSH_INTERVAL 秒刷新一次
+                            now = time.time()
+                            if now - last_flush > _FLUSH_INTERVAL:
+                                ans_placeholder.markdown(fix_latex_formulas(full_answer))
+                                last_flush = now
+                        # #5 空结果兜底
+                        if not section_text.strip():
+                            full_answer += "⚠️ 本板块生成超时或被限流，请重试或切换模型。\n"
+                        full_answer += "\n"
+                        ans_placeholder.markdown(fix_latex_formulas(full_answer))  # 收尾必刷
+                    except Exception as section_exc:
+                        logger.warning("板块「%s」生成失败: %s", label, section_exc)
+                        full_answer += f"\n\n## {label}\n\n⚠️ 本板块生成失败：{section_exc}\n\n"
+                        ans_placeholder.markdown(fix_latex_formulas(full_answer))
 
                 st.session_state["summary_answer"] = full_answer.strip()
                 st.session_state["summary_book"] = selected_book
