@@ -10,3 +10,4 @@ AGENT.md
 workspace_mimo/
 
 books/_ocr_source/
+.env
