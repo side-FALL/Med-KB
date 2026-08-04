@@ -308,11 +308,19 @@ def render(
 
     parsed = None
     if uploaded is not None:
-        # 用 getvalue() 而非 read()：read() 会推进 BytesIO 游标，
-        # 导致按钮点击触发 rerun 时第二次 read() 返回空字节，
-        # 解析失败提前 return，按钮逻辑无法执行（表现为点击无结果）。
-        raw = uploaded.getvalue()
-        if len(raw) > _MAX_UPLOAD_BYTES:
+        # 读取文件内容：优先 getvalue()（不受游标位置影响，rerun 安全）；
+        # 兜底 seek(0)+read() 以兼容不同 Streamlit 版本的 UploadedFile。
+        try:
+            raw = uploaded.getvalue()
+        except (AttributeError, ValueError):
+            try:
+                uploaded.seek(0)
+                raw = uploaded.read()
+            except Exception:
+                raw = b""
+        if not raw:
+            st.warning("读取文件内容为空，请重新上传")
+        elif len(raw) > _MAX_UPLOAD_BYTES:
             st.error(f"文件超过 100KB 限制（实际 {len(raw)} 字节），请精简后重传")
         else:
             # 尝试 UTF-8 解码，失败回退 GBK
@@ -375,61 +383,75 @@ def render(
     # ── 3. 触发总结 ──────────────────────────────────────
     if start_btn and selected_book:
         # 加载教材数据 + 检索 + 生成
-        with st.status("⚡ 正在生成重点总结...", expanded=True) as status:
-            embeddings, documents, metadatas = load_selected_books(
-                [selected_book], manifest,
-            )
-            if embeddings is None:
-                st.error(f"教材《{selected_book}》加载失败")
-                status.update(label="❌ 加载失败", state="error")
-                st.stop()
-            st.write(f"已加载《{selected_book}》，共 {len(documents)} 个文本块")
+        try:
+            with st.status("⚡ 正在生成重点总结...", expanded=True) as status:
+                embeddings, documents, metadatas = load_selected_books(
+                    [selected_book], manifest,
+                )
+                if embeddings is None:
+                    st.error(f"教材《{selected_book}》加载失败")
+                    status.update(label="❌ 加载失败", state="error")
+                    st.stop()
+                st.write(f"已加载《{selected_book}》，共 {len(documents)} 个文本块")
 
-            # 实时读取 alpha（设置页修改立即生效）
-            current_alpha = st.session_state.get("alpha", alpha)
+                # 实时读取 alpha（设置页修改立即生效）
+                current_alpha = st.session_state.get("alpha", alpha)
 
-            # 批量预计算全部条目的 embedding（1 次 API 调用替代 N 次串行）
-            # 显著缩短重点总结等待时间（23 条目：23 次往返 -> 1 次）。
-            all_items = (
-                parsed.get("translation", [])
-                + parsed.get("terms", [])
-                + parsed.get("qa", [])
-            )
-            _item_vec_map: dict[str, bytes] = {}
-            if all_items:
-                st.write(f"⏳ 正在批量向量化 {len(all_items)} 个条目...")
-                # 去重后批量请求（同一条目可能在多板块重复出现）
-                unique_items = list(dict.fromkeys(all_items))
-                vec_list = get_embeddings_batch(tuple(unique_items))
-                _item_vec_map = dict(zip(unique_items, vec_list))
+                # 批量预计算全部条目的 embedding（1 次 API 调用替代 N 次串行）
+                # 显著缩短重点总结等待时间（23 条目：23 次往返 -> 1 次）。
+                all_items = (
+                    parsed.get("translation", [])
+                    + parsed.get("terms", [])
+                    + parsed.get("qa", [])
+                )
+                _item_vec_map: dict[str, bytes] = {}
+                if all_items:
+                    st.write(f"⏳ 正在批量向量化 {len(all_items)} 个条目...")
+                    # 去重后批量请求（同一条目可能在多板块重复出现）
+                    unique_items = list(dict.fromkeys(all_items))
+                    vec_list = get_embeddings_batch(tuple(unique_items))
+                    _item_vec_map = dict(zip(unique_items, vec_list))
 
-            def _search_fn(text, k=_SUMMARY_SEARCH_K):
-                # 优先用预计算的向量（跳过逐条 embedding 调用）
-                qvec = _item_vec_map.get(text)
-                if qvec:
-                    return search_with_qvec(
-                        qvec, text, embeddings, documents, metadatas,
+                def _search_fn(text, k=_SUMMARY_SEARCH_K):
+                    # 优先用预计算的向量（跳过逐条 embedding 调用）
+                    qvec = _item_vec_map.get(text)
+                    if qvec:
+                        return search_with_qvec(
+                            qvec, text, embeddings, documents, metadatas,
+                            k=k, alpha=current_alpha,
+                        )
+                    return search(
+                        text, embeddings, documents, metadatas,
                         k=k, alpha=current_alpha,
                     )
-                return search(
-                    text, embeddings, documents, metadatas,
-                    k=k, alpha=current_alpha,
+
+                api_key, api_url, model_id = get_model_api_config(selected_model)
+                if not api_key:
+                    st.error(
+                        f"未配置所选模型（{selected_model}）的 API Key，"
+                        f"请在顶部切换到已配置 Key 的模型，或在 .env 中配置对应密钥。"
+                    )
+                    status.update(label="❌ API Key 缺失", state="error")
+                    st.stop()
+
+                def _progress(msg):
+                    st.write(msg)
+
+                results = _run_full_summary(
+                    parsed, _search_fn, generate_summary_for_section,
+                    api_key, api_url, model_id,
+                    k=_SUMMARY_SEARCH_K, progress_cb=_progress,
                 )
 
-            api_key, api_url, model_id = get_model_api_config(selected_model)
-
-            def _progress(msg):
-                st.write(msg)
-
-            results = _run_full_summary(
-                parsed, _search_fn, generate_summary_for_section,
-                api_key, api_url, model_id,
-                k=_SUMMARY_SEARCH_K, progress_cb=_progress,
-            )
-
-            st.session_state["summary_results"] = results
-            st.session_state["summary_book"] = selected_book
-            status.update(label="✅ 总结完成", state="complete", expanded=False)
+                st.session_state["summary_results"] = results
+                st.session_state["summary_book"] = selected_book
+                status.update(label="✅ 总结完成", state="complete", expanded=False)
+        except Exception as exc:
+            # 任何异常都显式展示，避免「点击无结果」的静默失败
+            import traceback as _tb
+            st.error(f"生成总结时出错：{exc}")
+            st.code(_tb.format_exc(), language="python")
+            st.session_state["summary_results"] = None
 
         # 记录学习行为（仅按钮触发时调用一次，rerun 后按钮为 False 不再触发）
         total_items = n_trans + n_terms + n_qa
