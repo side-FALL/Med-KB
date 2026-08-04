@@ -332,14 +332,14 @@ def render_update_announcement():
     <span class="tooltip-container">
         <span class="tooltip-icon">?</span>
         <div class="tooltip-content">
-            <h4>v2.2.5 更新公告</h4>
-            <p><strong>设置与管理面板全面增强：</strong></p>
+            <h4>v2.2.6 更新公告</h4>
+            <p><strong>重点总结模式 + 游客记录持久化：</strong></p>
             <ul>
-                <li>⚙️ 设置增强：用户偏好、教材管理、搜索历史、学习统计、数据导出</li>
-                <li>🛡️ 管理增强：用户管理、统计图表、操作日志、管理员互保</li>
-                <li>📊 界面优化：移除侧边栏，统计改表格，兼容 iframe</li>
-                <li>⚡ 登录优化：响应时间 < 2秒，加载状态，错误提示</li>
-                <li>📤 导出增强：各模式添加导出 Markdown 按钮</li>
+                <li>📋 重点总结：上传重点文档，依据教材总结并导出 Markdown</li>
+                <li>👤 游客记录：游客模式按会话生成 ID，保存学习记录 30 天</li>
+                <li>📊 管理统计：注册用户与游客分列统计，不互相稀释</li>
+                <li>🛡️ 防御容错：教材文件缺失时跳过不崩溃，单书缺失不影响整站</li>
+                <li>📚 数据重建：药理学、病理生理学从 OCR 重建，43 本全量校验</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
                 注册账号永久保存学习数据，游客仅保存学习记录 30 天
