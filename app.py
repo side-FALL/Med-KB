@@ -154,7 +154,7 @@ scope, selected_model, selected_books = render_scope_and_model_selector(
 
 # ── 模式切换 ────────────────────────────────────────────
 # 所有用户可见设置标签页，管理员额外可见管理面板标签页
-tabs_list = ["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式", "⚙️ 设置"]
+tabs_list = ["💬 智能问答", "📝 自测刷题", "🔄 对比学习", "🏥 病例分析", "🤖 智能体模式", "📋 重点总结", "⚙️ 设置"]
 if is_admin():
     tabs_list.append("🔧 管理面板")
 mode = st.tabs(tabs_list)
@@ -188,8 +188,14 @@ with mode[4]:
     from modes.agent import render as render_agent
     render_agent(ALL_BOOKS, book_count, top_k, alpha, scope, selected_model, selected_books)
 
-# ── 模式六：设置 ────────────────────────────────────────
+# ── 模式六：重点总结（延迟导入）────────────────────────
 with mode[5]:
+    from modes.summary import render as render_summary
+    render_summary(manifest, ALL_BOOKS, book_count, top_k, alpha,
+                   scope, selected_model, selected_books)
+
+# ── 模式七：设置 ────────────────────────────────────────
+with mode[6]:
     st.markdown(f"### {t('settings_title')}")
 
     # 用户信息（登录用户显示详细信息卡片，游客显示提示卡片）
@@ -236,9 +242,9 @@ with mode[5]:
     # 关于（版本历史、帮助文档、反馈渠道）
     render_about_section()
 
-# ── 模式七：管理面板（仅管理员可见）──────────────────────
+# ── 模式八：管理面板（仅管理员可见）──────────────────────
 if is_admin():
-    with mode[6]:
+    with mode[7]:
         from admin_panel import render_admin_panel
         manager = get_data_manager()
         render_admin_panel(manager)
