@@ -925,9 +925,10 @@ def set_auth_success(username: str, mode: str):
 
     对于已注册用户（login/register），自动从用户数据中恢复
     model_authed 持久化状态，实现付费模型密码缓存。
+    对于游客（guest），确保 data manager 已创建，供学习记录写入使用。
 
     Args:
-        username: 用户名（游客模式为 "游客"）
+        username: 用户名（游客模式为 guest_xxxxxxxx 格式的唯一 ID）
         mode: "register" / "login" / "guest"
     """
     st.session_state["authenticated"] = True
@@ -939,6 +940,10 @@ def set_auth_success(username: str, mode: str):
         user_data = st.session_state.get("user_data")
         if user_data and user_data.get("extra_data", {}).get("model_authed", False):
             st.session_state["model_authed"] = True
+
+    # 游客模式：确保 data manager 已创建，供学习记录写入使用
+    if mode == "guest":
+        _get_or_create_manager()
 
     hide_auth_loading()
 
@@ -1040,6 +1045,9 @@ def get_user_data() -> dict | None:
 
 def get_data_manager() -> "UserDataManager":
     """获取 UserDataManager 单例（与登录/注册流程共享同一实例）。
+
+    游客模式下同样返回可用实例，配合 ``add_learning_record`` 的惰性创建
+    机制，游客学习记录可正常写入（role="guest"）。
 
     Returns:
         UserDataManager 实例

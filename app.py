@@ -4,6 +4,9 @@
 性能优化：模式模块延迟导入，减少首次可交互时间（TTI）。
 """
 
+import random
+import string
+
 import streamlit as st
 
 # 加载 .env 文件
@@ -74,9 +77,13 @@ if not allowed:
 # 检查用户是否已认证；未认证则显示认证页面（注册/登录/游客）
 if not is_authenticated():
     def on_auth_submit(action: str, username: str | None, password: str | None):
-        """认证提交回调：游客模式直接通过。"""
+        """认证提交回调：游客模式生成唯一 guest ID 并通过。"""
         if action == "guest":
-            set_auth_success("游客", "guest")
+            # 生成会话唯一游客 ID：guest_ + 8 位随机小写字母数字
+            guest_id = "guest_" + "".join(
+                random.choices(string.ascii_lowercase + string.digits, k=8)
+            )
+            set_auth_success(guest_id, "guest")
 
     render_auth_page(on_submit_callback=on_auth_submit)
     st.stop()

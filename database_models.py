@@ -200,22 +200,25 @@ class UserProfile:
                 "username",
                 f"用户名 {self.username!r} 为系统保留名称，请选择其他名称",
             )
-        validate_required(self.password_hash, "password_hash")
-        # 兼容 bcrypt（$2b$/$2a$/$2y$ 开头，60 字符）和旧版 SHA-256（64 位十六进制）
-        is_bcrypt = (
-            self.password_hash.startswith(("$2b$", "$2a$", "$2y$"))
-            and len(self.password_hash) == 60
-        )
-        is_sha256 = (
-            len(self.password_hash) == 64
-            and all(c in "0123456789abcdef" for c in self.password_hash)
-        )
-        if not is_bcrypt and not is_sha256:
-            raise ValidationError(
-                "password_hash",
-                "密码哈希格式不合法，应为 bcrypt 哈希（$2b$ 开头，60 字符）"
-                "或 SHA-256 哈希（64 位十六进制字符串）",
+        # 游客用户无密码，跳过 password_hash 必填和格式校验
+        # （verify_password 对空/非法哈希已返回 False，游客不能凭密码登录）
+        if self.role != "guest":
+            validate_required(self.password_hash, "password_hash")
+            # 兼容 bcrypt（$2b$/$2a$/$2y$ 开头，60 字符）和旧版 SHA-256（64 位十六进制）
+            is_bcrypt = (
+                self.password_hash.startswith(("$2b$", "$2a$", "$2y$"))
+                and len(self.password_hash) == 60
             )
+            is_sha256 = (
+                len(self.password_hash) == 64
+                and all(c in "0123456789abcdef" for c in self.password_hash)
+            )
+            if not is_bcrypt and not is_sha256:
+                raise ValidationError(
+                    "password_hash",
+                    "密码哈希格式不合法，应为 bcrypt 哈希（$2b$ 开头，60 字符）"
+                    "或 SHA-256 哈希（64 位十六进制字符串）",
+                )
         if self.email:
             if not EMAIL_PATTERN.match(self.email):
                 raise ValidationError("email", f"邮箱格式不合法: {self.email!r}")

@@ -483,7 +483,7 @@ def _persist_preferences() -> None:
         return
 
     username = st.session_state.get("auth_username")
-    if not username or username == "游客":
+    if not username or username == "游客" or (isinstance(username, str) and username.startswith("guest_")):
         return
 
     try:

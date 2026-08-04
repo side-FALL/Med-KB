@@ -903,6 +903,7 @@ class UserDataManager:
         """添加学习记录。
 
         自动检查大小限制，超限时拒绝并回滚。
+        游客用户（用户名以 ``guest_`` 开头）首次写入时惰性创建 ``role="guest"`` 记录。
 
         Args:
             username: 用户名
@@ -916,7 +917,7 @@ class UserDataManager:
             更新后的用户数据字典
 
         Raises:
-            UserNotFoundError: 用户不存在
+            UserNotFoundError: 用户不存在（非游客且未注册）
             StorageLimitExceededError: 数据超限
             ValidationError: 记录校验失败
             DataOperationError: 操作失败
@@ -928,7 +929,18 @@ class UserDataManager:
             users = root.get("users", {})
 
             if username not in users:
-                raise UserNotFoundError(f"用户 {username!r} 不存在")
+                # 游客用户惰性创建：首次写学习记录时自动创建 role="guest" 记录
+                if isinstance(username, str) and username.startswith("guest_"):
+                    guest_data = create_default_user(
+                        username=username,
+                        password_hash="",
+                        role="guest",
+                    )
+                    users[username] = guest_data
+                    root["users"] = users
+                    logger.info("游客用户惰性创建: %s", username)
+                else:
+                    raise UserNotFoundError(f"用户 {username!r} 不存在")
 
             user_data = deepcopy(users[username])
             old_data = deepcopy(user_data)  # 备份用于回滚
