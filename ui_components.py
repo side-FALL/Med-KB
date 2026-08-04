@@ -336,14 +336,11 @@ def render_update_announcement():
             <p><strong>重点总结模式 + 游客记录持久化：</strong></p>
             <ul>
                 <li>📋 重点总结：上传重点文档，依据教材总结并导出 Markdown</li>
-                <li>👤 游客记录：游客模式按会话生成 ID，保存学习记录 30 天</li>
+                <li>👤 游客记录：游客模式按会话生成 ID，即用即走</li>
                 <li>📊 管理统计：注册用户与游客分列统计，不互相稀释</li>
                 <li>🛡️ 防御容错：教材文件缺失时跳过不崩溃，单书缺失不影响整站</li>
                 <li>📚 数据重建：药理学、病理生理学从 OCR 重建，43 本全量校验</li>
             </ul>
-            <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                注册账号永久保存学习数据，游客仅保存学习记录 30 天
-            </p>
         </div>
     </span>
 </div>

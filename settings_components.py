@@ -59,7 +59,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_count": "登录次数",
         "query_count": "查询次数",
         "guest_title": "游客模式",
-        "guest_desc": "学习记录保存 30 天 · 偏好仅本次会话有效",
+        "guest_desc": "部分功能受限 · 偏好仅本次会话有效",
         "logout_btn": "🚪 退出登录",
         "login_btn": "📝 注册/登录",
         # 个人偏好
@@ -156,7 +156,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_restore_success": "✅ 数据恢复成功，偏好设置已更新",
         "dm_restore_fail": "⚠️ 数据恢复失败：{error}",
         "dm_restore_invalid": "⚠️ 文件格式不正确，请上传有效的备份文件",
-        "dm_guest_hint": "游客学习记录保存 30 天，偏好仅本次会话有效；导出的备份文件可在登录后恢复",
+        "dm_guest_hint": "导出的备份文件可在登录后恢复",
         # 统计
         "kb_stats_title": "📊 知识库统计",
         "kb_books": "教材数量",
@@ -211,7 +211,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_count": "Logins",
         "query_count": "Queries",
         "guest_title": "Guest Mode",
-        "guest_desc": "Data not saved · limited features · preferences last this session only",
+        "guest_desc": "Limited features · preferences last this session only",
         "logout_btn": "🚪 Log Out",
         "login_btn": "📝 Register / Log In",
         # Preferences
@@ -308,7 +308,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_restore_success": "✅ Data restored successfully, preferences updated",
         "dm_restore_fail": "⚠️ Data restore failed: {error}",
         "dm_restore_invalid": "⚠️ Invalid file format, please upload a valid backup file",
-        "dm_guest_hint": "Guest data is session-only; exported backups can be restored after logging in",
+        "dm_guest_hint": "Exported backups can be restored after logging in",
         # Stats
         "kb_stats_title": "📊 Knowledge Base Stats",
         "kb_books": "Textbooks",
