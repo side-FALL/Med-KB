@@ -455,7 +455,7 @@ class TestRenderParseError(unittest.TestCase):
 
         # file_uploader 返回无效文件（无板块关键词）
         mock_file = MagicMock()
-        mock_file.read.return_value = "这是一段没有任何板块关键词的普通文本内容。".encode("utf-8")
+        mock_file.getvalue.return_value = "这是一段没有任何板块关键词的普通文本内容。".encode("utf-8")
         mock_file.name = "invalid.txt"
         mock_st.file_uploader.return_value = mock_file
 
@@ -522,7 +522,7 @@ class TestRenderParseError(unittest.TestCase):
         # 构造超过 100KB 的文件
         big_content = b"x" * (101 * 1024)
         mock_file = MagicMock()
-        mock_file.read.return_value = big_content
+        mock_file.getvalue.return_value = big_content
         mock_file.name = "big.txt"
         mock_st.file_uploader.return_value = mock_file
 
@@ -578,7 +578,7 @@ class TestRenderGuestRecord(unittest.TestCase):
             "三、简答\n1. 什么是心力衰竭？\n"
         )
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "pathology.txt"
         mock_st.file_uploader.return_value = mock_file
 
@@ -668,7 +668,7 @@ class TestRenderExportContainsSections(unittest.TestCase):
             "三、简答\n1. 什么是心力衰竭？\n"
         )
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "pathology.txt"
         mock_st.file_uploader.return_value = mock_file
         mock_st.selectbox.return_value = "病理学"
@@ -750,7 +750,7 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
             "三、简答\n1. 什么是心力衰竭？\n"
         )
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "pathology.txt"
         mock_st.file_uploader.return_value = mock_file
         mock_st.selectbox.return_value = "病理学"
@@ -814,7 +814,7 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
 
         doc_content = "一、英汉互译\n心力衰竭\n"
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "pathology.txt"
         mock_st.file_uploader.return_value = mock_file
         mock_st.selectbox.return_value = "病理学"
@@ -862,7 +862,7 @@ class TestRenderEmptySearch(unittest.TestCase):
 
         doc_content = "二、名词解释\n罕见术语X\n"
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "rare.txt"
         mock_st.file_uploader.return_value = mock_file
         mock_st.selectbox.return_value = "病理学"
@@ -938,7 +938,7 @@ class TestRenderMissingSection(unittest.TestCase):
             "二、名词解释\n心肌梗死\n"
         )
         mock_file = MagicMock()
-        mock_file.read.return_value = doc_content.encode("utf-8")
+        mock_file.getvalue.return_value = doc_content.encode("utf-8")
         mock_file.name = "partial.txt"
         mock_st.file_uploader.return_value = mock_file
         mock_st.selectbox.return_value = "病理学"

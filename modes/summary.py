@@ -308,7 +308,10 @@ def render(
 
     parsed = None
     if uploaded is not None:
-        raw = uploaded.read()
+        # 用 getvalue() 而非 read()：read() 会推进 BytesIO 游标，
+        # 导致按钮点击触发 rerun 时第二次 read() 返回空字节，
+        # 解析失败提前 return，按钮逻辑无法执行（表现为点击无结果）。
+        raw = uploaded.getvalue()
         if len(raw) > _MAX_UPLOAD_BYTES:
             st.error(f"文件超过 100KB 限制（实际 {len(raw)} 字节），请精简后重传")
         else:
