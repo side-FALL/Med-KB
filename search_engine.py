@@ -58,9 +58,34 @@ def get_embedding(text: str) -> bytes:
         return b""
 
 
+@st.cache_data(max_entries=200, ttl=3600 * 24)
+def get_embeddings_batch(texts: tuple[str, ...]) -> list[bytes]:
+    """批量获取 Embedding 向量（单次 API 调用），返回归一化向量 bytes 列表。
+
+    比 N 次 get_embedding 串行调用快约 N 倍（单次网络往返）。
+    texts 用 tuple 以便 Streamlit 缓存哈希。空字符串项返回 b""。
+
+    用于重点总结等多条目场景：预先一次性向量化全部条目，避免逐条调用。
+    """
+    if not texts:
+        return []
+    try:
+        client = _get_embed_client()
+        r = client.embeddings.create(model="BAAI/bge-m3", input=list(texts))
+        results = []
+        for d in r.data:
+            vec = np.array(d.embedding, dtype=np.float32)
+            results.append((vec / np.linalg.norm(vec)).tobytes())
+        return results
+    except Exception as e:
+        st.error(f"批量向量化失败: {e}")
+        return [b""] * len(texts)
+
+
 # ── 混合检索 ────────────────────────────────────────────
 
-def search(
+def _search_core(
+    qvec: np.ndarray,
     text: str,
     embeddings: np.ndarray,
     documents: list[str],
@@ -68,25 +93,7 @@ def search(
     k: int = 10,
     alpha: float = 0.7,
 ) -> list[dict]:
-    """混合检索：向量相似度 + BM25 关键词匹配。
-
-    Args:
-        text: 查询文本
-        embeddings: 归一化后的 embedding 矩阵
-        documents: 文档文本列表
-        metadatas: 文档元数据列表
-        k: 返回结果数
-        alpha: 向量权重 (1.0=纯向量, 0.0=纯关键词)
-
-    Returns:
-        按相关性排序的命中结果列表
-    """
-    # 获取 Embedding（自动缓存）
-    embedding_bytes = get_embedding(text)
-    if not embedding_bytes:
-        return []
-    qvec = np.frombuffer(embedding_bytes, dtype=np.float32)
-
+    """混合检索核心：向量相似度 + BM25，使用预计算的查询向量 qvec。"""
     vec_scores = embeddings @ qvec
 
     # 向量 top-50 候选
@@ -116,3 +123,52 @@ def search(
             "bm25_score": round(float(bm25_scores[local_idx]), 4),
         })
     return hits
+
+
+def search(
+    text: str,
+    embeddings: np.ndarray,
+    documents: list[str],
+    metadatas: list[dict],
+    k: int = 10,
+    alpha: float = 0.7,
+) -> list[dict]:
+    """混合检索：向量相似度 + BM25 关键词匹配。
+
+    Args:
+        text: 查询文本
+        embeddings: 归一化后的 embedding 矩阵
+        documents: 文档文本列表
+        metadatas: 文档元数据列表
+        k: 返回结果数
+        alpha: 向量权重 (1.0=纯向量, 0.0=纯关键词)
+
+    Returns:
+        按相关性排序的命中结果列表
+    """
+    # 获取 Embedding（自动缓存）
+    embedding_bytes = get_embedding(text)
+    if not embedding_bytes:
+        return []
+    qvec = np.frombuffer(embedding_bytes, dtype=np.float32)
+    return _search_core(qvec, text, embeddings, documents, metadatas, k, alpha)
+
+
+def search_with_qvec(
+    query_vec_bytes: bytes,
+    text: str,
+    embeddings: np.ndarray,
+    documents: list[str],
+    metadatas: list[dict],
+    k: int = 10,
+    alpha: float = 0.7,
+) -> list[dict]:
+    """混合检索，使用预计算的查询向量（跳过 get_embedding 调用）。
+
+    用于多条目场景：先 get_embeddings_batch 一次性向量化全部条目，
+    再逐条用本函数检索，避免 N 次串行 embedding API 调用。
+    """
+    if not query_vec_bytes:
+        return []
+    qvec = np.frombuffer(query_vec_bytes, dtype=np.float32)
+    return _search_core(qvec, text, embeddings, documents, metadatas, k, alpha)

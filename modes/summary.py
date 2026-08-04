@@ -26,7 +26,7 @@ from llm_utils import (
     SUMMARY_SECTION_QA,
     generate_summary_for_section,
 )
-from search_engine import search
+from search_engine import search, search_with_qvec, get_embeddings_batch
 from ui_components import (
     fix_latex_formulas,
     load_selected_books,
@@ -388,7 +388,29 @@ def render(
             # 实时读取 alpha（设置页修改立即生效）
             current_alpha = st.session_state.get("alpha", alpha)
 
+            # 批量预计算全部条目的 embedding（1 次 API 调用替代 N 次串行）
+            # 显著缩短重点总结等待时间（23 条目：23 次往返 -> 1 次）。
+            all_items = (
+                parsed.get("translation", [])
+                + parsed.get("terms", [])
+                + parsed.get("qa", [])
+            )
+            _item_vec_map: dict[str, bytes] = {}
+            if all_items:
+                st.write(f"⏳ 正在批量向量化 {len(all_items)} 个条目...")
+                # 去重后批量请求（同一条目可能在多板块重复出现）
+                unique_items = list(dict.fromkeys(all_items))
+                vec_list = get_embeddings_batch(tuple(unique_items))
+                _item_vec_map = dict(zip(unique_items, vec_list))
+
             def _search_fn(text, k=_SUMMARY_SEARCH_K):
+                # 优先用预计算的向量（跳过逐条 embedding 调用）
+                qvec = _item_vec_map.get(text)
+                if qvec:
+                    return search_with_qvec(
+                        qvec, text, embeddings, documents, metadatas,
+                        k=k, alpha=current_alpha,
+                    )
                 return search(
                     text, embeddings, documents, metadatas,
                     k=k, alpha=current_alpha,
