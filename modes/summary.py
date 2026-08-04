@@ -357,18 +357,17 @@ def render(
         st.error("未加载到可用教材，无法生成总结")
         return
 
-    # 教材单选下拉（默认已选教材第一本，否则第一本）
-    default_idx = 0
-    if scope == "选择教材" and selected_books:
-        first = selected_books[0]
-        if first in ALL_BOOKS:
-            default_idx = ALL_BOOKS.index(first)
-    selected_book = st.selectbox(
-        "📖 选择教材", ALL_BOOKS, index=default_idx,
-        key="summary_book_select",
-        help="总结将基于所选教材进行检索",
-    )
-
+    # 教材来源：复用页面顶部「教材范围」选择器，不在标签页内重复渲染单选。
+    # 重点总结需锁定 1 本教材：取顶部已选首本；未选时默认 ALL_BOOKS[0]。
+    if selected_books and selected_books[0] in ALL_BOOKS:
+        selected_book = selected_books[0]
+        if len(selected_books) > 1:
+            st.info(f"📖 本次总结将以首本《{selected_book}》为准（顶部共选 {len(selected_books)} 本）")
+        else:
+            st.markdown(f"📖 **本次总结教材：《{selected_book}》**")
+    else:
+        selected_book = ALL_BOOKS[0]
+        st.markdown(f"📖 **本次总结教材：《{selected_book}》**（可在页面顶部「教材范围」切换）")
     start_btn = st.button(
         "🚀 开始总结", type="primary", use_container_width=True, key="summary_start_btn",
     )
