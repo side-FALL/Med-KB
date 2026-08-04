@@ -6,6 +6,7 @@
 import re
 import json
 import html
+import logging
 from datetime import datetime
 
 import numpy as np
@@ -13,6 +14,8 @@ import streamlit as st
 from pathlib import Path
 
 from config import MODELS, is_model_free, check_model_password
+
+logger = logging.getLogger(__name__)
 
 
 def _escape_html(text: str) -> str:
@@ -70,35 +73,79 @@ def load_manifest():
 def get_book_stats(manifest: dict) -> tuple[list[str], int, int, dict]:
     """从清单中提取教材统计信息。
 
+    启动时校验每本教材的 .json 和 .npz 文件是否存在，
+    缺失任一文件的书不计入可选教材列表，并记录警告日志。
+
     Returns:
         (ALL_BOOKS, book_count, total_chunks, book_stats)
     """
-    ALL_BOOKS = sorted(manifest.keys(), key=lambda x: -manifest[x]["chunks"])
+    missing_books = []
+    available_books = {}
+    for name, info in manifest.items():
+        fname = info["file"]
+        json_path = BOOKS_DIR / f"{fname}.json"
+        npz_path = BOOKS_DIR / f"{fname}.npz"
+        if not json_path.exists() or not npz_path.exists():
+            missing_files = []
+            if not json_path.exists():
+                missing_files.append(f"{fname}.json")
+            if not npz_path.exists():
+                missing_files.append(f"{fname}.npz")
+            missing_books.append((name, missing_files))
+        else:
+            available_books[name] = info
+
+    if missing_books:
+        for name, files in missing_books:
+            logger.warning("教材文件缺失，已从可选列表移除: %s (缺失: %s)", name, ", ".join(files))
+
+    ALL_BOOKS = sorted(available_books.keys(), key=lambda x: -available_books[x]["chunks"])
     book_count = len(ALL_BOOKS)
-    total_chunks = sum(v["chunks"] for v in manifest.values())
-    book_stats = {name: info["chunks"] for name, info in manifest.items()}
+    total_chunks = sum(v["chunks"] for v in available_books.values())
+    book_stats = {name: info["chunks"] for name, info in available_books.items()}
     return ALL_BOOKS, book_count, total_chunks, book_stats
 
 
 @st.cache_resource
 def load_book(book_name: str, manifest: dict):
-    """按需加载单本教材（带缓存）。"""
+    """按需加载单本教材（带缓存）。
+
+    若 .json 或 .npz 文件缺失，记录警告并返回 None，不抛出异常。
+    """
     info = manifest[book_name]
     fname = info["file"]
-    emb_data = np.load(BOOKS_DIR / f"{fname}.npz")
+    npz_path = BOOKS_DIR / f"{fname}.npz"
+    json_path = BOOKS_DIR / f"{fname}.json"
+
+    if not npz_path.exists() or not json_path.exists():
+        missing = []
+        if not npz_path.exists():
+            missing.append(f"{fname}.npz")
+        if not json_path.exists():
+            missing.append(f"{fname}.json")
+        logger.warning("教材文件缺失，已跳过: %s (缺失: %s)", book_name, ", ".join(missing))
+        return None
+
+    emb_data = np.load(npz_path)
     emb = emb_data["embeddings"].astype(np.float32)
     emb = emb / np.linalg.norm(emb, axis=1, keepdims=True)
-    with open(BOOKS_DIR / f"{fname}.json", encoding="utf-8") as f:
+    with open(json_path, encoding="utf-8") as f:
         meta = json.load(f)
     return emb, meta["documents"], meta["metadatas"]
 
 
 def load_selected_books(book_names: list[str], manifest: dict):
-    """加载选中的教材数据。"""
+    """加载选中的教材数据。
+
+    单本教材加载失败（文件缺失）时跳过该书，不影响其余书正常加载。
+    """
     all_emb, all_docs, all_metas = [], [], []
     for name in book_names:
         if name in manifest:
-            emb, docs, metas = load_book(name, manifest)
+            result = load_book(name, manifest)
+            if result is None:
+                continue
+            emb, docs, metas = result
             all_emb.append(emb)
             all_docs.extend(docs)
             all_metas.extend(metas)
