@@ -24,6 +24,9 @@ from llm_utils import (
     SUMMARY_SECTION_TRANSLATION,
     SUMMARY_SECTION_TERMS,
     SUMMARY_SECTION_QA,
+    SUMMARY_SYSTEM_PROMPT,
+    build_summary_message,
+    call_llm_stream,
     generate_summary_for_section,
 )
 from search_engine import search, search_with_qvec, get_embeddings_batch
@@ -380,9 +383,8 @@ def render(
         "🚀 开始总结", type="primary", use_container_width=True, key="summary_start_btn",
     )
 
-    # ── 3. 触发总结 ──────────────────────────────────────
+    # ── 3. 触发总结（逐板块流式输出，像智能问答一样逐字显示）─────────
     if start_btn and selected_book:
-        # 加载教材数据 + 检索 + 生成
         try:
             with st.status("⚡ 正在生成重点总结...", expanded=True) as status:
                 embeddings, documents, metadatas = load_selected_books(
@@ -394,11 +396,9 @@ def render(
                     st.stop()
                 st.write(f"已加载《{selected_book}》，共 {len(documents)} 个文本块")
 
-                # 实时读取 alpha（设置页修改立即生效）
                 current_alpha = st.session_state.get("alpha", alpha)
 
                 # 批量预计算全部条目的 embedding（1 次 API 调用替代 N 次串行）
-                # 显著缩短重点总结等待时间（23 条目：23 次往返 -> 1 次）。
                 all_items = (
                     parsed.get("translation", [])
                     + parsed.get("terms", [])
@@ -407,13 +407,11 @@ def render(
                 _item_vec_map: dict[str, bytes] = {}
                 if all_items:
                     st.write(f"⏳ 正在批量向量化 {len(all_items)} 个条目...")
-                    # 去重后批量请求（同一条目可能在多板块重复出现）
                     unique_items = list(dict.fromkeys(all_items))
                     vec_list = get_embeddings_batch(tuple(unique_items))
                     _item_vec_map = dict(zip(unique_items, vec_list))
 
                 def _search_fn(text, k=_SUMMARY_SEARCH_K):
-                    # 优先用预计算的向量（跳过逐条 embedding 调用）
                     qvec = _item_vec_map.get(text)
                     if qvec:
                         return search_with_qvec(
@@ -429,21 +427,42 @@ def render(
                 if not api_key:
                     st.error(
                         f"未配置所选模型（{selected_model}）的 API Key，"
-                        f"请在顶部切换到已配置 Key 的模型，或在 .env 中配置对应密钥。"
+                        f"请在顶部切换到已配置 Key 的模型。"
                     )
                     status.update(label="❌ API Key 缺失", state="error")
                     st.stop()
 
-                def _progress(msg):
-                    st.write(msg)
+                # 逐板块：检索 -> 流式生成，结果实时拼接到 full_answer
+                status.update(label="⚡ 正在检索并流式生成...")
+                full_answer = ""
+                # 流式输出占位符（status 展开期间可见；完成后由下方 section 4 重渲染）
+                ans_placeholder = st.empty()
+                for section_key, stype, label, _use_table in _SECTION_META:
+                    items = parsed.get(section_key, [])
+                    if not items:
+                        continue
+                    st.write(f"检索「{label}」板块（{len(items)} 条）...")
+                    items_with_hits = _collect_items_with_hits(
+                        items, _search_fn, k=_SUMMARY_SEARCH_K,
+                    )
+                    if not items_with_hits:
+                        continue
+                    user_msg = build_summary_message(stype, items_with_hits)
+                    full_answer += f"\n\n## {label}\n\n"
+                    ans_placeholder.markdown(fix_latex_formulas(full_answer))
+                    # 流式逐 token 输出（复用 call_llm_stream，带超时与 429 重试）
+                    for chunk in call_llm_stream(
+                        api_key, user_msg,
+                        api_url=api_url, model=model_id,
+                        system_prompt=SUMMARY_SYSTEM_PROMPT,
+                        max_tokens=3000,
+                    ):
+                        full_answer += chunk
+                        ans_placeholder.markdown(fix_latex_formulas(full_answer))
+                    full_answer += "\n"
+                    ans_placeholder.markdown(fix_latex_formulas(full_answer))
 
-                results = _run_full_summary(
-                    parsed, _search_fn, generate_summary_for_section,
-                    api_key, api_url, model_id,
-                    k=_SUMMARY_SEARCH_K, progress_cb=_progress,
-                )
-
-                st.session_state["summary_results"] = results
+                st.session_state["summary_answer"] = full_answer.strip()
                 st.session_state["summary_book"] = selected_book
                 status.update(label="✅ 总结完成", state="complete", expanded=False)
         except Exception as exc:
@@ -451,7 +470,7 @@ def render(
             import traceback as _tb
             st.error(f"生成总结时出错：{exc}")
             st.code(_tb.format_exc(), language="python")
-            st.session_state["summary_results"] = None
+            st.session_state["summary_answer"] = None
 
         # 记录学习行为（仅按钮触发时调用一次，rerun 后按钮为 False 不再触发）
         total_items = n_trans + n_terms + n_qa
@@ -461,15 +480,15 @@ def render(
         )
 
     # ── 4. 渲染结果 + 导出 ───────────────────────────────
-    results = st.session_state.get("summary_results")
+    answer = st.session_state.get("summary_answer")
     book_name = st.session_state.get("summary_book", "")
-    if results:
-        _render_results(results, book_name)
+    if answer:
+        st.markdown(f"### 📋 总结结果 -《{book_name}》")
+        st.markdown(fix_latex_formulas(answer))
 
         # 导出 Markdown（复用 ui_components 的导出按钮）
-        md = _build_export_markdown(results, book_name)
         render_markdown_export_button(
-            md,
+            f"# 重点总结《{book_name}》\n\n{answer}",
             question=f"重点总结《{book_name}》",
             mode_label="重点总结",
             key=f"export_md_summary_{datetime.now().strftime('%H%M%S%f')}",

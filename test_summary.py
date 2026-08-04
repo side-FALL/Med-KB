@@ -317,11 +317,11 @@ class TestRunFullSummary(unittest.TestCase):
             "qa": ["简述心衰机制"],
         }
         mock_search = MagicMock(return_value=_make_hits(2))
-        mock_gen = MagicMock(
+        mock_stream = MagicMock(
             side_effect=lambda stype, items, **kw: [_make_llm_result(e["item"], stype) for e in items]
         )
         results = _run_full_summary(
-            parsed, mock_search, mock_gen,
+            parsed, mock_search, mock_stream,
             api_key="k", api_url="u", model_id="m",
         )
         self.assertIn("translation", results)
@@ -339,11 +339,11 @@ class TestRunFullSummary(unittest.TestCase):
             "qa": ["简述心衰"],
         }
         mock_search = MagicMock(return_value=_make_hits(2, book="病理学", chapter="第十章"))
-        mock_gen = MagicMock(
+        mock_stream = MagicMock(
             side_effect=lambda stype, items, **kw: [_make_llm_result(e["item"], stype) for e in items]
         )
         results = _run_full_summary(
-            parsed, mock_search, mock_gen,
+            parsed, mock_search, mock_stream,
             api_key="k", api_url="u", model_id="m",
         )
         for section in ["translation", "terms", "qa"]:
@@ -355,11 +355,11 @@ class TestRunFullSummary(unittest.TestCase):
         """检索为空时 source 标注未找到。"""
         parsed = {"translation": [], "terms": ["罕见术语"], "qa": []}
         mock_search = MagicMock(return_value=[])  # 检索为空
-        mock_gen = MagicMock(
+        mock_stream = MagicMock(
             side_effect=lambda stype, items, **kw: [_make_llm_results_empty(e["item"]) for e in items]
         )
         results = _run_full_summary(
-            parsed, mock_search, mock_gen,
+            parsed, mock_search, mock_stream,
             api_key="k", api_url="u", model_id="m",
         )
         self.assertEqual(len(results["terms"]), 1)
@@ -369,19 +369,19 @@ class TestRunFullSummary(unittest.TestCase):
         """空板块不调用 LLM。"""
         parsed = {"translation": ["X"], "terms": [], "qa": []}
         mock_search = MagicMock(return_value=_make_hits(1))
-        mock_gen = MagicMock(return_value=[{"item": "X", "result": "R"}])
-        _run_full_summary(parsed, mock_search, mock_gen, "k", "u", "m")
+        mock_stream = MagicMock(return_value=[{"item": "X", "result": "R"}])
+        _run_full_summary(parsed, mock_search, mock_stream, "k", "u", "m")
         # 只对 translation 板块调用一次 generate
-        self.assertEqual(mock_gen.call_count, 1)
+        self.assertEqual(mock_stream.call_count, 1)
 
     def test_progress_cb_called(self):
         """进度回调被调用。"""
         parsed = {"translation": ["A"], "terms": [], "qa": []}
         mock_search = MagicMock(return_value=_make_hits(1))
-        mock_gen = MagicMock(return_value=[{"item": "A", "result": "R"}])
+        mock_stream = MagicMock(return_value=[{"item": "A", "result": "R"}])
         progress_msgs = []
         _run_full_summary(
-            parsed, mock_search, mock_gen, "k", "u", "m",
+            parsed, mock_search, mock_stream, "k", "u", "m",
             progress_cb=lambda msg: progress_msgs.append(msg),
         )
         self.assertGreater(len(progress_msgs), 0)
@@ -404,9 +404,9 @@ class TestRunFullSummary(unittest.TestCase):
             "qa": ["Q1"],
         }
         mock_search = MagicMock(return_value=_make_hits(1))
-        mock_gen = MagicMock(return_value=[{"item": "X", "result": "R"}])
-        _run_full_summary(parsed, mock_search, mock_gen, "k", "u", "m")
-        called_types = [c.args[0] for c in mock_gen.call_args_list]
+        mock_stream = MagicMock(return_value=[{"item": "X", "result": "R"}])
+        _run_full_summary(parsed, mock_search, mock_stream, "k", "u", "m")
+        called_types = [c.args[0] for c in mock_stream.call_args_list]
         self.assertIn(SUMMARY_SECTION_TRANSLATION, called_types)
         self.assertIn(SUMMARY_SECTION_TERMS, called_types)
         self.assertIn(SUMMARY_SECTION_QA, called_types)
@@ -555,11 +555,12 @@ class TestRenderGuestRecord(unittest.TestCase):
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_guest_record_called(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """游客会话下点击总结按钮后 _record_learning 被调用。"""
@@ -603,10 +604,8 @@ class TestRenderGuestRecord(unittest.TestCase):
         # search 返回模拟检索结果
         mock_search.return_value = _make_hits(2)
 
-        # generate_summary_for_section 返回模拟结果
-        mock_gen.side_effect = lambda stype, items, **kw: [
-            _make_llm_result(e["item"], stype) for e in items
-        ]
+        # call_llm_stream 返回模拟流式 chunk（每次调用返回新迭代器，避免耗尽）
+        mock_stream.side_effect = lambda *a, **kw: iter(["模拟总结内容"])
 
         # get_model_api_config
         mock_config.return_value = ("key", "url", "model")
@@ -647,11 +646,12 @@ class TestRenderExportContainsSections(unittest.TestCase):
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_export_contains_three_sections(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """正常流程导出的 Markdown 包含三板块标题。"""
@@ -680,9 +680,7 @@ class TestRenderExportContainsSections(unittest.TestCase):
 
         mock_load.return_value = (MagicMock(), ["doc1"], [{"book": "病理学", "section": "第十章"}])
         mock_search.return_value = _make_hits(2)
-        mock_gen.side_effect = lambda stype, items, **kw: [
-            _make_llm_result(e["item"], stype) for e in items
-        ]
+        mock_stream.side_effect = lambda *a, **kw: iter(["模拟总结内容"])
         mock_config.return_value = ("key", "url", "model")
         mock_fix.side_effect = lambda x: x
 
@@ -707,15 +705,10 @@ class TestRenderExportContainsSections(unittest.TestCase):
         # 断言：包含三板块标题
         self.assertIn("英汉互译", md)
         self.assertIn("名词解释", md)
-        self.assertIn("简答题", md)
+        self.assertIn("简答", md)
 
-        # 断言：包含条目
-        self.assertIn("心力衰竭", md)
-        self.assertIn("心肌梗死", md)
-        self.assertIn("心力衰竭", md)  # qa 条目也含
-
-        # 断言：包含出处
-        self.assertIn("病理学", md)
+        # 断言：包含流式生成内容
+        self.assertIn("模拟总结内容", md)
 
         # 断言：mode_label 为重点总结
         mode_label = export_args.kwargs.get("mode_label", "") if export_args.kwargs else ""
@@ -734,11 +727,12 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_three_sections_generated(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """正常流程生成三板块结果。"""
@@ -762,9 +756,7 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
 
         mock_load.return_value = (MagicMock(), ["doc1"], [{"book": "病理学", "section": "第十章"}])
         mock_search.return_value = _make_hits(2)
-        mock_gen.side_effect = lambda stype, items, **kw: [
-            _make_llm_result(e["item"], stype) for e in items
-        ]
+        mock_stream.side_effect = lambda *a, **kw: iter(["模拟总结内容"])
         mock_config.return_value = ("key", "url", "model")
         mock_fix.side_effect = lambda x: x
 
@@ -779,34 +771,32 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
             selected_books=[],
         )
 
-        # 断言：generate_summary_for_section 被调用 3 次（三板块）
-        self.assertEqual(mock_gen.call_count, 3)
+        # 断言：call_llm_stream 被调用 3 次（三板块各一次流式生成）
+        self.assertEqual(mock_stream.call_count, 3)
 
         # 断言：search 被调用（每条目一次，共 4 条目：2+1+1）
         self.assertEqual(mock_search.call_count, 4)
 
-        # 断言：st.dataframe 被调用（互译表格）
-        mock_st.dataframe.assert_called()
+        # 断言：summary_answer 已存入 session_state 且含三板块标题
+        answer = mock_st.session_state.get("summary_answer", "")
+        self.assertIn("英汉互译", answer)
+        self.assertIn("名词解释", answer)
+        self.assertIn("简答", answer)
 
-        # 断言：st.markdown 被调用（条目卡片渲染）
+        # 断言：st.markdown 被调用（流式渲染）
         mock_st.markdown.assert_called()
-
-        # 断言：st.caption 被调用（出处标注）
-        mock_st.caption.assert_called()
-        caption_texts = [str(c) for c in mock_st.caption.call_args_list]
-        has_source_caption = any("出处" in ct for ct in caption_texts)
-        self.assertTrue(has_source_caption, "应有出处标注的 caption")
 
     @patch("modes.summary.render_markdown_export_button")
     @patch("modes.summary.render_empty_state")
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_button_not_clicked_no_generation(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """未点击按钮时不调用 LLM 生成。"""
@@ -833,7 +823,7 @@ class TestRenderThreeSectionsComplete(unittest.TestCase):
         )
 
         # 断言：generate_summary_for_section 未被调用
-        mock_gen.assert_not_called()
+        mock_stream.assert_not_called()
         # 断言：search 未被调用
         mock_search.assert_not_called()
 
@@ -850,11 +840,12 @@ class TestRenderEmptySearch(unittest.TestCase):
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_empty_search_marked_not_found(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """检索为空时 source 标注'教材中未找到相关内容'。"""
@@ -877,10 +868,8 @@ class TestRenderEmptySearch(unittest.TestCase):
         # search 返回空列表（检索为空）
         mock_search.return_value = []
 
-        # LLM 返回"未找到"
-        mock_gen.return_value = [
-            {"item": "罕见术语X", "result": "教材中未找到相关内容。\n📖 出处：无"},
-        ]
+        # call_llm_stream 流式返回"未找到"内容
+        mock_stream.side_effect = lambda *a, **kw: iter(["教材中未找到相关内容"])
 
         mock_config.return_value = ("key", "url", "model")
         mock_fix.side_effect = lambda x: x
@@ -899,15 +888,9 @@ class TestRenderEmptySearch(unittest.TestCase):
         # 断言：search 被调用
         mock_search.assert_called()
 
-        # 断言：导出内容包含"未找到"
-        export_args = mock_export.call_args
-        md = export_args.args[0] if export_args.args else ""
-        self.assertIn("教材中未找到相关内容", md)
-
-        # 断言：caption 包含出处标注（即使是未找到）
-        caption_texts = [str(c) for c in mock_st.caption.call_args_list]
-        has_caption = len(caption_texts) > 0
-        self.assertTrue(has_caption, "应有出处 caption")
+        # 断言：summary_answer 包含"未找到"（流式生成的内容）
+        answer = mock_st.session_state.get("summary_answer", "")
+        self.assertIn("教材中未找到相关内容", answer)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -922,11 +905,12 @@ class TestRenderMissingSection(unittest.TestCase):
     @patch("modes.summary.fix_latex_formulas")
     @patch("modes.summary.get_model_api_config")
     @patch("modes.summary.load_selected_books")
-    @patch("modes.summary.generate_summary_for_section")
+    @patch("modes.summary.get_embeddings_batch", return_value=[b""])
+    @patch("modes.summary.call_llm_stream")
     @patch("modes.summary.search")
     @patch("modes.summary.st")
     def test_missing_qa_section(
-        self, mock_st, mock_search, mock_gen, mock_load,
+        self, mock_st, mock_search, mock_stream, mock_batch, mock_load,
         mock_config, mock_fix, mock_empty, mock_export,
     ):
         """缺少简答板块时仍正常生成其他两板块。"""
@@ -950,9 +934,7 @@ class TestRenderMissingSection(unittest.TestCase):
 
         mock_load.return_value = (MagicMock(), ["doc1"], [{"book": "病理学", "section": "第十章"}])
         mock_search.return_value = _make_hits(2)
-        mock_gen.side_effect = lambda stype, items, **kw: [
-            _make_llm_result(e["item"], stype) for e in items
-        ]
+        mock_stream.side_effect = lambda *a, **kw: iter(["模拟总结内容"])
         mock_config.return_value = ("key", "url", "model")
         mock_fix.side_effect = lambda x: x
 
@@ -968,7 +950,7 @@ class TestRenderMissingSection(unittest.TestCase):
         )
 
         # 断言：generate_summary_for_section 只被调用 2 次（无简答）
-        self.assertEqual(mock_gen.call_count, 2)
+        self.assertEqual(mock_stream.call_count, 2)
 
         # 断言：导出仍成功
         mock_export.assert_called_once()
