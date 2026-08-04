@@ -29,9 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _record_learning(query: str, topic: str = "") -> None:
-    """记录学习行为（仅登录用户），失败不影响主流程。"""
-    if st.session_state.get("auth_mode_type") == "guest":
-        return
+    """记录学习行为（登录用户和游客均记录），失败不影响主流程。"""
     try:
         manager = st.session_state.get("auth_data_manager")
         username = st.session_state.get("auth_username", "")

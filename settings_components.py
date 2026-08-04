@@ -59,7 +59,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "login_count": "登录次数",
         "query_count": "查询次数",
         "guest_title": "游客模式",
-        "guest_desc": "数据不会保存 · 功能受限 · 偏好仅本次会话有效",
+        "guest_desc": "学习记录保存 30 天 · 偏好仅本次会话有效",
         "logout_btn": "🚪 退出登录",
         "login_btn": "📝 注册/登录",
         # 个人偏好
@@ -156,7 +156,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dm_restore_success": "✅ 数据恢复成功，偏好设置已更新",
         "dm_restore_fail": "⚠️ 数据恢复失败：{error}",
         "dm_restore_invalid": "⚠️ 文件格式不正确，请上传有效的备份文件",
-        "dm_guest_hint": "游客模式数据仅本次会话有效，导出的备份文件可在登录后恢复",
+        "dm_guest_hint": "游客学习记录保存 30 天，偏好仅本次会话有效；导出的备份文件可在登录后恢复",
         # 统计
         "kb_stats_title": "📊 知识库统计",
         "kb_books": "教材数量",
@@ -1557,7 +1557,7 @@ def render_account_security_section() -> None:
 
     验收标准：
     - 修改密码：输入旧密码验证、新密码两次确认，规则与注册一致（至少8位含两种字符类型）
-    - 游客模式不显示（无持久化数据）
+    - 游客模式不显示（无账号可修改）
     """
     st.markdown(f"#### {t('security_title')}")
 

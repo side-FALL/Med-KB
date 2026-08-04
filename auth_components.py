@@ -681,15 +681,15 @@ def _render_guest_info(on_confirm_callback=None):
 
     st.markdown("""
     <div class="auth-guest-info fade-in-up">
-        <div class="auth-guest-info-title">⚠️ 游客模式限制</div>
+        <div class="auth-guest-info-title">⚠️ 游客模式说明</div>
         <p class="auth-guest-info-text">
-            游客模式下您的学习数据不会被保存。以下功能将受限：
+            游客仅保存学习记录 30 天，偏好不保存。以下功能将受限：
         </p>
         <ul class="auth-guest-limits">
-            <li>学习记录不会保存，退出后丢失</li>
+            <li>学习记录保存 30 天，过期后自动清理</li>
             <li>无法使用收藏夹功能</li>
-            <li>对话历史不会持久化</li>
-            <li>个性化设置无法保存</li>
+            <li>对话历史仅本次会话有效</li>
+            <li>个性化设置仅本次会话有效</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)

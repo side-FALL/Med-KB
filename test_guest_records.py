@@ -575,6 +575,215 @@ class TestGuestSystemStats(unittest.TestCase):
         # 但 total_users 包含了游客，管理面板区分展示由任务 4 处理
 
 
+# ═══════════════════════════════════════════════════════════════════
+# 测试 9：5 个模式 _record_learning 游客放行
+# ═══════════════════════════════════════════════════════════════════
+
+class TestGuestModeRecordLearning(unittest.TestCase):
+    """验证 5 个模式的 _record_learning 对游客放行。
+
+    逐模式断言：
+    - 游客调用 _record_learning 后 add_learning_record 被调用
+    - 记录归属正确 guest ID
+    - 无 data_manager 时安全返回不报错
+    """
+
+    _MODES = [
+        ("modes.qa", "qa"),
+        ("modes.quiz", "quiz"),
+        ("modes.compare", "compare"),
+        ("modes.case", "case"),
+        ("modes.agent", "agent"),
+    ]
+
+    def _call_record_learning(self, module_name: str, query: str, topic: str = ""):
+        """动态导入指定模式的 _record_learning 并调用。"""
+        import importlib
+        mod = importlib.import_module(module_name)
+        mod._record_learning(query, topic=topic)
+
+    def test_9_1_qa_guest_records(self):
+        """qa 模式：游客 _record_learning 调用 add_learning_record。"""
+        guest_id = "guest_qa00001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        with patch("modes.qa.st") as mock_st:
+            mock_st.session_state = session_state
+            self._call_record_learning("modes.qa", "心衰的病理机制")
+
+        mock_manager.add_learning_record.assert_called_once_with(
+            username=guest_id,
+            topic="心衰的病理机制",
+            query="心衰的病理机制",
+            source_type="qa",
+        )
+
+    def test_9_2_quiz_guest_records(self):
+        """quiz 模式：游客 _record_learning 调用 add_learning_record。"""
+        guest_id = "guest_quiz0001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        with patch("modes.quiz.st") as mock_st:
+            mock_st.session_state = session_state
+            self._call_record_learning("modes.quiz", "心力衰竭", topic="心力衰竭")
+
+        mock_manager.add_learning_record.assert_called_once_with(
+            username=guest_id,
+            topic="心力衰竭",
+            query="心力衰竭",
+            source_type="quiz",
+        )
+
+    def test_9_3_compare_guest_records(self):
+        """compare 模式：游客 _record_learning 调用 add_learning_record。"""
+        guest_id = "guest_cmp00001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        with patch("modes.compare.st") as mock_st:
+            mock_st.session_state = session_state
+            self._call_record_learning(
+                "modes.compare", "青霉素 vs 头孢菌素",
+                topic="青霉素 vs 头孢菌素",
+            )
+
+        mock_manager.add_learning_record.assert_called_once_with(
+            username=guest_id,
+            topic="青霉素 vs 头孢菌素",
+            query="青霉素 vs 头孢菌素",
+            source_type="compare",
+        )
+
+    def test_9_4_case_guest_records(self):
+        """case 模式：游客 _record_learning 调用 add_learning_record。"""
+        guest_id = "guest_case0001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        with patch("modes.case.st") as mock_st:
+            mock_st.session_state = session_state
+            self._call_record_learning(
+                "modes.case", "患者男65岁反复胸闷",
+                topic="病例分析",
+            )
+
+        mock_manager.add_learning_record.assert_called_once_with(
+            username=guest_id,
+            topic="病例分析",
+            query="患者男65岁反复胸闷",
+            source_type="case",
+        )
+
+    def test_9_5_agent_guest_records(self):
+        """agent 模式：游客 _record_learning 调用 add_learning_record。"""
+        guest_id = "guest_agent001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        with patch("modes.agent.st") as mock_st:
+            mock_st.session_state = session_state
+            self._call_record_learning(
+                "modes.agent", "阿莫西林用量",
+                topic="智能体对话",
+            )
+
+        mock_manager.add_learning_record.assert_called_once_with(
+            username=guest_id,
+            topic="智能体对话",
+            query="阿莫西林用量",
+            source_type="agent",
+        )
+
+    def test_9_6_no_manager_safe_return(self):
+        """无 data_manager 时 _record_learning 安全返回不报错。"""
+        session_state = _make_guest_session_state("guest_nomgr001")
+        # 不设置 auth_data_manager
+
+        for module_name, _ in self._MODES:
+            with patch(f"{module_name}.st") as mock_st:
+                mock_st.session_state = session_state
+                # 不应抛出异常
+                self._call_record_learning(module_name, "test query")
+
+    def test_9_7_different_guests_isolated_across_modes(self):
+        """两个不同 guest ID 通过模式记录互不串扰。"""
+        guest_a = "guest_isoa001"
+        guest_b = "guest_isob001"
+
+        mock_manager_a = MagicMock()
+        mock_manager_b = MagicMock()
+
+        session_a = _make_guest_session_state(guest_a)
+        session_a["auth_data_manager"] = mock_manager_a
+
+        session_b = _make_guest_session_state(guest_b)
+        session_b["auth_data_manager"] = mock_manager_b
+
+        # Guest A 通过 qa 模式记录
+        with patch("modes.qa.st") as mock_st:
+            mock_st.session_state = session_a
+            self._call_record_learning("modes.qa", "糖尿病分型")
+
+        # Guest B 通过 quiz 模式记录
+        with patch("modes.quiz.st") as mock_st:
+            mock_st.session_state = session_b
+            self._call_record_learning("modes.quiz", "抗生素分类", topic="抗生素分类")
+
+        # 验证各自记录归属正确
+        mock_manager_a.add_learning_record.assert_called_once_with(
+            username=guest_a,
+            topic="糖尿病分型",
+            query="糖尿病分型",
+            source_type="qa",
+        )
+        mock_manager_b.add_learning_record.assert_called_once_with(
+            username=guest_b,
+            topic="抗生素分类",
+            query="抗生素分类",
+            source_type="quiz",
+        )
+
+        # 验证 A 的 manager 没有 B 的记录
+        self.assertEqual(mock_manager_a.add_learning_record.call_count, 1)
+        self.assertEqual(mock_manager_b.add_learning_record.call_count, 1)
+
+    def test_9_8_all_modes_end_to_end_with_shared_manager(self):
+        """使用共享 mock manager 验证 5 个模式均归属同一 guest ID。"""
+        guest_id = "guest_e2e00001"
+        mock_manager = MagicMock()
+        session_state = _make_guest_session_state(guest_id)
+        session_state["auth_data_manager"] = mock_manager
+
+        for module_name, source_type in self._MODES:
+            with patch(f"{module_name}.st") as mock_st:
+                mock_st.session_state = session_state
+                self._call_record_learning(
+                    module_name, f"test_{source_type}",
+                    topic=f"topic_{source_type}",
+                )
+
+        # 5 个模式各调用一次
+        self.assertEqual(mock_manager.add_learning_record.call_count, 5)
+
+        # 每次调用的 username 都是同一个 guest_id
+        for call in mock_manager.add_learning_record.call_args_list:
+            self.assertEqual(call.kwargs["username"], guest_id)
+
+        # source_type 覆盖全部 5 种
+        source_types = {
+            call.kwargs["source_type"]
+            for call in mock_manager.add_learning_record.call_args_list
+        }
+        self.assertEqual(source_types, {"qa", "quiz", "compare", "case", "agent"})
+
+
 # ── 入口 ──────────────────────────────────────────────────
 
 if __name__ == "__main__":

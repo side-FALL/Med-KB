@@ -479,11 +479,11 @@ class TestFullUserFlow(unittest.TestCase):
         self.assertIn("不存在", error)
 
     def test_guest_mode_no_persistence(self):
-        """游客模式不触发数据持久化。"""
-        # 游客模式仅需验证逻辑正确性：
-        # - 游客不创建用户记录
+        """游客认证阶段不创建用户记录（惰性创建在学习记录写入时触发）。"""
+        # 游客模式认证阶段验证逻辑正确性：
+        # - 游客认证不立即创建用户记录
         # - 游客的 session_state 中 user_data 为空
-        # 这在实际 Streamlit 环境中由 auth_components 模块处理
+        # - 学习记录写入时由 add_learning_record 惰性创建（见 test_guest_records.py）
         users = self.manager.list_users()
         self.assertEqual(len(users), 0, "新初始化的管理器应无用户")
 

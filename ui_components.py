@@ -342,7 +342,7 @@ def render_update_announcement():
                 <li>📤 导出增强：各模式添加导出 Markdown 按钮</li>
             </ul>
             <p style="margin-top:0.8rem; color:#666; font-size:0.8rem;">
-                注册账号可保存学习数据，游客模式不保存
+                注册账号永久保存学习数据，游客仅保存学习记录 30 天
             </p>
         </div>
     </span>
