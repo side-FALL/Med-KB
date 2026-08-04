@@ -1216,10 +1216,12 @@ class UserDataManager:
 
         Returns:
             统计数据字典，包含:
-            - total_users: 总用户数
+            - total_users: 总用户数（含游客）
+            - registered_users: 注册用户数（admin + user，不含游客）
             - total_queries: 总查询次数（所有用户查询次数之和）
             - admin_count: 管理员数量
             - user_count: 普通用户数量
+            - guest_count: 游客会话数量
         """
         root = self._ensure_initialized()
         users = root.get("users", {})
@@ -1227,6 +1229,7 @@ class UserDataManager:
         total_queries = 0
         admin_count = 0
         user_count = 0
+        guest_count = 0
 
         for username, user_data in users.items():
             stats = user_data.get("stats", {})
@@ -1236,12 +1239,16 @@ class UserDataManager:
                 admin_count += 1
             elif role == "user":
                 user_count += 1
+            elif role == "guest":
+                guest_count += 1
 
         return {
             "total_users": len(users),
+            "registered_users": admin_count + user_count,
             "total_queries": total_queries,
             "admin_count": admin_count,
             "user_count": user_count,
+            "guest_count": guest_count,
         }
 
     def get_operation_logs(self) -> list[dict]:

@@ -552,7 +552,7 @@ class TestGuestSystemStats(unittest.TestCase):
     """验证系统统计中游客角色的处理。"""
 
     def test_8_1_system_stats_includes_guest_count(self):
-        """get_system_stats 统计中包含游客数量。"""
+        """get_system_stats 统计中包含游客数量，且注册数与游客数分列。"""
         from database_models import create_default_user
 
         mock_client = _make_mock_client()
@@ -571,8 +571,8 @@ class TestGuestSystemStats(unittest.TestCase):
 
         self.assertEqual(stats["total_users"], 4)
         self.assertEqual(stats["user_count"], 2)
-        # guest_count 当前未在 get_system_stats 中单独统计，
-        # 但 total_users 包含了游客，管理面板区分展示由任务 4 处理
+        self.assertEqual(stats["guest_count"], 2)
+        self.assertEqual(stats["registered_users"], 2)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -782,6 +782,196 @@ class TestGuestModeRecordLearning(unittest.TestCase):
             for call in mock_manager.add_learning_record.call_args_list
         }
         self.assertEqual(source_types, {"qa", "quiz", "compare", "case", "agent"})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 测试 10：管理面板 guest 统计区分（任务 4 集成测试）
+# ═══════════════════════════════════════════════════════════════════
+
+class TestGuestAdminStatsIntegration(unittest.TestCase):
+    """验证管理面板统计中 guest 与注册用户区分展示（集成测试）。
+
+    构造含若干注册用户 + 若干 guest 用户的 mock 数据，断言：
+    - 统计指标中注册数与游客数分列且数值正确
+    - guest 记录 30 天过期后不再计入
+    """
+
+    def setUp(self):
+        """构造含 2 注册用户 + 1 管理员 + 4 游客的 mock 数据。"""
+        from database_models import create_default_user
+        from datetime import datetime, timezone, timedelta
+
+        mock_client = _make_mock_client()
+        now = datetime.now(timezone.utc)
+
+        # 注册用户（近期活跃）
+        recent_time = (now - timedelta(days=2)).isoformat()
+        # 过期游客（31 天前活跃）
+        expired_time = (now - timedelta(days=31)).isoformat()
+
+        test_root = {
+            "users": {
+                "alice": create_default_user("alice", "hash_alice", role="user"),
+                "bob": create_default_user("bob", "hash_bob", role="user"),
+                "admin1": create_default_user("admin1", "hash_admin", role="admin"),
+                # 2 个近期活跃游客
+                "guest_active1": create_default_user("guest_active1", "", role="guest"),
+                "guest_active2": create_default_user("guest_active2", "", role="guest"),
+                # 2 个过期游客
+                "guest_expired1": create_default_user("guest_expired1", "", role="guest"),
+                "guest_expired2": create_default_user("guest_expired2", "", role="guest"),
+            },
+            "logs": {"operation_logs": [], "error_logs": [], "usage_stats": {}},
+        }
+
+        # 设置活跃时间
+        test_root["users"]["alice"]["profile"]["last_active_at"] = recent_time
+        test_root["users"]["bob"]["profile"]["last_active_at"] = recent_time
+        test_root["users"]["admin1"]["profile"]["last_active_at"] = recent_time
+        test_root["users"]["guest_active1"]["profile"]["last_active_at"] = recent_time
+        test_root["users"]["guest_active2"]["profile"]["last_active_at"] = recent_time
+        test_root["users"]["guest_expired1"]["profile"]["last_active_at"] = expired_time
+        test_root["users"]["guest_expired2"]["profile"]["last_active_at"] = expired_time
+
+        self.manager = _make_mock_manager(mock_client, test_root)
+        self.test_root = test_root
+
+    def test_10_1_stats_registered_count_correct(self):
+        """注册用户数 = admin + user，不含游客。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["registered_users"], 3)  # 1 admin + 2 user
+
+    def test_10_2_stats_guest_count_correct(self):
+        """游客数正确统计。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["guest_count"], 4)
+
+    def test_10_3_stats_total_includes_all(self):
+        """总用户数包含所有角色。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["total_users"], 7)  # 3 registered + 4 guest
+
+    def test_10_4_stats_admin_count_unaffected(self):
+        """管理员数不受游客影响。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["admin_count"], 1)
+
+    def test_10_5_stats_user_count_unaffected(self):
+        """普通用户数不受游客影响。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["user_count"], 2)
+
+    def test_10_6_expired_guests_cleaned_then_stats_updated(self):
+        """过期游客清理后，统计数值正确更新。"""
+        # 清理过期用户
+        result = self.manager.cleanup_expired_users()
+
+        # 应有 2 个过期游客被清理
+        self.assertEqual(result["total_cleaned"], 2)
+        self.assertIn("guest_expired1", result["cleaned"])
+        self.assertIn("guest_expired2", result["cleaned"])
+
+        # 清理后统计
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["guest_count"], 2)  # 仅剩 2 个活跃游客
+        self.assertEqual(stats["registered_users"], 3)  # 注册用户不受影响
+        self.assertEqual(stats["total_users"], 5)  # 3 registered + 2 active guest
+
+    def test_10_7_expired_guest_not_counted_after_cleanup(self):
+        """过期游客清理后不再计入统计。"""
+        self.manager.cleanup_expired_users()
+
+        stats = self.manager.get_system_stats()
+        # 验证过期游客不在统计中
+        self.assertEqual(stats["guest_count"], 2)
+        self.assertNotIn("guest_expired1", self.test_root["users"])
+        self.assertNotIn("guest_expired2", self.test_root["users"])
+
+    def test_10_8_list_users_includes_guests(self):
+        """list_users 返回包含游客的用户列表。"""
+        users = self.manager.list_users()
+        roles = [u["role"] for u in users]
+        self.assertIn("guest", roles)
+        self.assertIn("user", roles)
+        self.assertIn("admin", roles)
+
+    def test_10_9_active_users_distinguish_role(self):
+        """活跃用户统计按角色区分。"""
+        from admin_panel import _parse_dt
+        from datetime import datetime, timezone, timedelta
+
+        users = self.manager.list_users()
+        now = datetime.now(timezone.utc)
+        week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7)
+
+        reg_active = 0
+        guest_active = 0
+        for u in users:
+            last = _parse_dt(u.get("last_active_at", ""))
+            if last and last >= week_start:
+                if u.get("role") == "guest":
+                    guest_active += 1
+                else:
+                    reg_active += 1
+
+        # 3 个注册用户 + 2 个活跃游客在本周活跃
+        self.assertEqual(reg_active, 3)
+        self.assertEqual(guest_active, 2)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 测试 11：管理面板渲染集成（任务 4）
+# ═══════════════════════════════════════════════════════════════════
+
+class TestGuestAdminPanelRender(unittest.TestCase):
+    """验证管理面板渲染中 guest 统计区分。"""
+
+    def _make_panel_st(self):
+        """构造可支撑渲染的 mock streamlit。"""
+        mock_st = MagicMock()
+        mock_st.session_state = {}
+        mock_st.button.return_value = False
+
+        def mock_columns(arg):
+            count = len(arg) if isinstance(arg, list) else arg
+            return [MagicMock() for _ in range(count)]
+
+        mock_st.columns.side_effect = mock_columns
+        return mock_st
+
+    def test_11_1_panel_renders_registered_and_guest_metrics(self):
+        """面板渲染时 st.metric 分别展示注册用户和游客会话。"""
+        from database_models import create_default_user
+
+        mock_client = _make_mock_client()
+        test_root = {
+            "users": {
+                "user1": create_default_user("user1", "hash", role="user"),
+                "guest_x1": create_default_user("guest_x1", "", role="guest"),
+                "guest_x2": create_default_user("guest_x2", "", role="guest"),
+            },
+            "logs": {"operation_logs": [], "error_logs": [], "usage_stats": {}},
+        }
+        manager = _make_mock_manager(mock_client, test_root)
+
+        mock_panel_st = self._make_panel_st()
+
+        with patch("admin_panel.st", mock_panel_st), \
+             patch("auth_components.st") as mock_auth_st:
+            mock_auth_st.session_state = {
+                "authenticated": True,
+                "auth_mode_type": "login",
+                "auth_username": "admin1",
+                "user_data": {"profile": {"role": "admin", "username": "admin1"}},
+            }
+            from admin_panel import render_admin_panel
+            render_admin_panel(manager)
+
+        metric_calls = mock_panel_st.metric.call_args_list
+        metric_values = {call[0][0]: call[0][1] for call in metric_calls}
+
+        self.assertEqual(metric_values["注册用户"], 1)
+        self.assertEqual(metric_values["游客会话"], 2)
 
 
 # ── 入口 ──────────────────────────────────────────────────

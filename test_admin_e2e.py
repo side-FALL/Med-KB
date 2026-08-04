@@ -576,9 +576,19 @@ class TestStandard4AdminPanelData(unittest.TestCase):
     # ── get_system_stats ──────────────────────────────────
 
     def test_4_1_system_stats_total_users(self):
-        """get_system_stats 返回正确的总用户数。"""
+        """get_system_stats 返回正确的总用户数（含游客）。"""
         stats = self.manager.get_system_stats()
         self.assertEqual(stats["total_users"], 5)
+
+    def test_4_1b_system_stats_registered_users(self):
+        """get_system_stats 返回正确的注册用户数（不含游客）。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["registered_users"], 5)
+
+    def test_4_1c_system_stats_guest_count_zero(self):
+        """无游客时 guest_count 为 0。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["guest_count"], 0)
 
     def test_4_2_system_stats_admin_count(self):
         """get_system_stats 返回正确的管理员数量。"""
@@ -657,8 +667,8 @@ class TestStandard4AdminPanelData(unittest.TestCase):
             mock_auth_st.session_state = _make_admin_session_state(role="admin")
             render_admin_panel(self.manager)
 
-        # st.metric 被调用 6 次（总用户数、总查询次数、管理员数量 + 今日/本周/本月活跃）
-        self.assertEqual(mock_panel_st.metric.call_count, 6)
+        # st.metric 被调用 7 次（注册用户、游客会话、总查询次数、管理员数量 + 今日/本周/本月活跃）
+        self.assertEqual(mock_panel_st.metric.call_count, 7)
 
         # st.table 至少被调用 1 次（用户列表；新增的系统配置/API Key 状态表为额外调用）
         self.assertGreaterEqual(mock_panel_st.table.call_count, 1)
@@ -681,7 +691,8 @@ class TestStandard4AdminPanelData(unittest.TestCase):
         metric_calls = mock_panel_st.metric.call_args_list
         metric_values = {call[0][0]: call[0][1] for call in metric_calls}
 
-        self.assertEqual(metric_values["总用户数"], 5)
+        self.assertEqual(metric_values["注册用户"], 5)
+        self.assertEqual(metric_values["游客会话"], 0)
         self.assertEqual(metric_values["总查询次数"], 0)
         self.assertEqual(metric_values["管理员数量"], 2)
 
@@ -731,6 +742,158 @@ class TestStandard4AdminPanelData(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 标准五：管理面板 guest 统计区分（任务 4）
+# ═══════════════════════════════════════════════════════════════════
+
+class TestStandard5GuestStatsDistinction(unittest.TestCase):
+    """验证管理面板统计中 guest 与注册用户区分展示。"""
+
+    def setUp(self):
+        """创建含管理员、普通用户和游客的模拟存储。"""
+        from database_models import create_default_root, create_default_user
+
+        self.test_root = create_default_root()
+        self.manager = _make_mock_manager(self.test_root, current_user=None)
+
+        # 创建 1 个管理员 + 2 个普通用户
+        self.manager.create_user("admin_one", _TEST_HASH, role="admin")
+        self.manager.create_user("user_one", _TEST_HASH, role="user")
+        self.manager.create_user("user_two", _TEST_HASH, role="user")
+
+        # 直接添加 3 个游客用户
+        for gid in ["guest_aaa11111", "guest_bbb22222", "guest_ccc33333"]:
+            self.test_root["users"][gid] = create_default_user(gid, "", role="guest")
+
+    # ── get_system_stats 区分 ──────────────────────────────
+
+    def test_5_1_stats_registered_users_excludes_guests(self):
+        """registered_users 不含游客。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["registered_users"], 3)  # 1 admin + 2 user
+
+    def test_5_2_stats_guest_count_correct(self):
+        """guest_count 正确统计游客数。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["guest_count"], 3)
+
+    def test_5_3_stats_total_users_includes_all(self):
+        """total_users 包含所有角色。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["total_users"], 6)  # 3 registered + 3 guest
+
+    def test_5_4_stats_admin_count_unaffected(self):
+        """admin_count 不受游客影响。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["admin_count"], 1)
+
+    def test_5_5_stats_user_count_unaffected(self):
+        """user_count 不受游客影响。"""
+        stats = self.manager.get_system_stats()
+        self.assertEqual(stats["user_count"], 2)
+
+    # ── 面板渲染区分 ──────────────────────────────────────
+
+    def test_5_6_panel_metrics_show_registered_and_guest_separately(self):
+        """面板 st.metric 分别展示注册用户和游客会话。"""
+        from admin_panel import render_admin_panel
+
+        mock_panel_st = _make_mock_st_for_panel()
+
+        with patch("admin_panel.st", mock_panel_st), \
+             patch("auth_components.st") as mock_auth_st:
+            mock_auth_st.session_state = _make_admin_session_state(role="admin")
+            render_admin_panel(self.manager)
+
+        metric_calls = mock_panel_st.metric.call_args_list
+        metric_values = {call[0][0]: call[0][1] for call in metric_calls}
+
+        self.assertEqual(metric_values["注册用户"], 3)
+        self.assertEqual(metric_values["游客会话"], 3)
+
+    def test_5_7_panel_overview_table_has_guest_row(self):
+        """统计概览表中包含游客会话行。"""
+        from admin_panel import render_admin_panel
+
+        mock_panel_st = _make_mock_st_for_panel()
+
+        with patch("admin_panel.st", mock_panel_st), \
+             patch("auth_components.st") as mock_auth_st:
+            mock_auth_st.session_state = _make_admin_session_state(role="admin")
+            render_admin_panel(self.manager)
+
+        # 从所有 dataframe 调用中找到统计概览表
+        df_args = [call[0][0] for call in mock_panel_st.dataframe.call_args_list]
+        overview_dfs = [df for df in df_args if "指标" in df.columns]
+        self.assertGreaterEqual(len(overview_dfs), 1, "应存在统计概览表")
+
+        overview_df = overview_dfs[0]
+        indicators = list(overview_df["指标"])
+        self.assertIn("注册用户", indicators)
+        self.assertIn("游客会话", indicators)
+
+    def test_5_8_panel_active_users_distinguish_role(self):
+        """活跃用户指标按角色区分展示。"""
+        from admin_panel import render_admin_panel
+
+        mock_panel_st = _make_mock_st_for_panel()
+
+        with patch("admin_panel.st", mock_panel_st), \
+             patch("auth_components.st") as mock_auth_st:
+            mock_auth_st.session_state = _make_admin_session_state(role="admin")
+            render_admin_panel(self.manager)
+
+        metric_calls = mock_panel_st.metric.call_args_list
+        active_metrics = {call[0][0]: call[0][1] for call in metric_calls
+                         if "活跃" in call[0][0]}
+
+        # 活跃指标值应包含 "注册 / 游客" 格式
+        for label, value in active_metrics.items():
+            self.assertIn("/", value,
+                          f"活跃指标 {label} 应包含 '注册 / 游客' 格式，实际值: {value}")
+
+    # ── super_admin 保护不受 guest 影响 ────────────────────
+
+    def test_5_9_super_admin_protection_unaffected_by_guest(self):
+        """super_admin 保护机制不受 guest 角色影响。"""
+        from admin_panel import render_admin_panel
+
+        mock_panel_st = _make_mock_st_for_panel()
+
+        with patch("admin_panel.st", mock_panel_st), \
+             patch("auth_components.st") as mock_auth_st:
+            mock_auth_st.session_state = _make_admin_session_state(
+                role="admin", username="admin_one"
+            )
+            render_admin_panel(self.manager)
+
+        # 不应出现权限错误
+        error_calls = [call for call in mock_panel_st.error.call_args_list
+                       if "权限" in str(call)]
+        self.assertEqual(len(error_calls), 0,
+                         "管理员访问管理面板不应受 guest 用户影响")
+
+    def test_5_10_role_immutability_guard_unaffected(self):
+        """角色不可变性守卫不受 guest 角色影响。"""
+        # 验证 change_role 弹窗中 available_roles 逻辑不受 guest 影响
+        from admin_panel import _render_role_change_dialog
+
+        mock_panel_st = _make_mock_st_for_panel()
+
+        with patch("admin_panel.st", mock_panel_st):
+            # 非超级管理员尝试修改角色
+            _render_role_change_dialog(
+                self.manager, "user_one", "user", "admin_one", False
+            )
+
+        # selectbox 应被调用，且可选角色不含 admin
+        selectbox_calls = mock_panel_st.selectbox.call_args_list
+        self.assertGreaterEqual(len(selectbox_calls), 1)
+        available_roles = selectbox_calls[0][0][1]
+        self.assertNotIn("admin", available_roles,
+                         "非超级管理员不应能将用户提升为 admin")
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 主入口
 # ═══════════════════════════════════════════════════════════════════
 
@@ -756,6 +919,7 @@ if __name__ == "__main__":
     print(f"   标准二（管理员登录+徽章）: 11 项测试")
     print(f"   标准三（管理面板访问控制）:  7 项测试")
     print(f"   标准四（面板数据正确性）:  14 项测试")
+    print(f"   标准五（guest 统计区分）:  10 项测试")
     print(f"   {'─' * 40}")
     print(f"   总计: {total} 个测试")
     print(f"   ✅ 通过: {passed}")

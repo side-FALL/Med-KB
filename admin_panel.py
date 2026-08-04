@@ -5,7 +5,7 @@
 
 功能：
 - 查看所有已注册用户列表（用户名、角色、注册时间等）
-- 查看系统统计（总用户数、总查询次数、活跃用户数）
+- 查看系统统计（注册用户/游客会话分列、总查询次数、活跃用户数按角色区分）
 - 趋势分析（查询次数趋势图、用户增长趋势图）
 - 模式使用分布（各功能模式使用占比）
 - 系统配置（当前模型、API Key 状态、教材数量、存储后端状态）
@@ -142,7 +142,7 @@ def _parse_dt(iso_str: str):
 
 
 def _render_system_stats(manager):
-    """渲染系统统计区域（含活跃用户指标）。
+    """渲染系统统计区域（含活跃用户指标，注册用户与游客分列）。
 
     Args:
         manager: UserDataManager 实例
@@ -152,19 +152,25 @@ def _render_system_stats(manager):
     try:
         stats = manager.get_system_stats()
 
-        col1, col2, col3 = st.columns(3)
+        registered = stats.get("registered_users",
+                               stats["admin_count"] + stats.get("user_count", 0))
+        guest_count = stats.get("guest_count", 0)
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("总用户数", stats["total_users"])
+            st.metric("注册用户", registered)
         with col2:
-            st.metric("总查询次数", stats["total_queries"])
+            st.metric("游客会话", guest_count)
         with col3:
+            st.metric("总查询次数", stats["total_queries"])
+        with col4:
             st.metric("管理员数量", stats["admin_count"])
 
     except Exception as exc:
         st.error(f"加载统计数据失败: {exc}")
         return
 
-    # ── 活跃用户统计（基于最后登录时间）──
+    # ── 活跃用户统计（基于最后登录时间，按角色区分）──
     st.markdown("##### 🔄 活跃用户")
     try:
         users = manager.list_users()
@@ -177,36 +183,61 @@ def _render_system_stats(manager):
     week_start = today_start - timedelta(days=7)
     month_start = today_start - timedelta(days=30)
 
-    active_today = active_week = active_month = 0
+    # 注册用户活跃数
+    reg_active_today = reg_active_week = reg_active_month = 0
+    # 游客活跃数
+    guest_active_today = guest_active_week = guest_active_month = 0
     for u in users:
         last = _parse_dt(u.get("last_active_at", ""))
         if last is None:
             continue
+        is_guest = u.get("role") == "guest"
         if last >= today_start:
-            active_today += 1
+            if is_guest:
+                guest_active_today += 1
+            else:
+                reg_active_today += 1
         if last >= week_start:
-            active_week += 1
+            if is_guest:
+                guest_active_week += 1
+            else:
+                reg_active_week += 1
         if last >= month_start:
-            active_month += 1
+            if is_guest:
+                guest_active_month += 1
+            else:
+                reg_active_month += 1
 
     ca1, ca2, ca3 = st.columns(3)
     with ca1:
-        st.metric("今日活跃", active_today)
+        st.metric("今日活跃",
+                  f"{reg_active_today} 注册 / {guest_active_today} 游客")
     with ca2:
-        st.metric("本周活跃", active_week)
+        st.metric("本周活跃",
+                  f"{reg_active_week} 注册 / {guest_active_week} 游客")
     with ca3:
-        st.metric("本月活跃", active_month)
+        st.metric("本月活跃",
+                  f"{reg_active_month} 注册 / {guest_active_month} 游客")
 
     # ── 统计概览表（替代柱状图，兼容 iframe 嵌入环境）──
     st.markdown("**📊 统计概览**")
     try:
         import pandas as pd
         table_data = pd.DataFrame({
-            "指标": ["总用户", "管理员", "普通用户", "今日活跃", "本周活跃", "本月活跃"],
+            "指标": [
+                "注册用户", "管理员", "普通用户",
+                "游客会话",
+                "今日活跃 (注册)", "今日活跃 (游客)",
+                "本周活跃 (注册)", "本周活跃 (游客)",
+                "本月活跃 (注册)", "本月活跃 (游客)",
+            ],
             "数量": [
-                stats["total_users"], stats["admin_count"],
+                registered, stats["admin_count"],
                 stats.get("user_count", 0),
-                active_today, active_week, active_month,
+                guest_count,
+                reg_active_today, guest_active_today,
+                reg_active_week, guest_active_week,
+                reg_active_month, guest_active_month,
             ],
         })
         st.dataframe(table_data, use_container_width=True, hide_index=True)
@@ -254,34 +285,45 @@ def _render_trend_charts(manager):
         except Exception as exc:
             st.error(f"加载查询趋势失败: {exc}")
 
-    # ── 用户增长趋势（按注册时间累积）──
+    # ── 用户增长趋势（按注册时间累积，区分注册用户与游客）──
     with col_growth:
         st.markdown("**用户增长趋势**")
         try:
             users = manager.list_users()
             if users:
-                # 按注册日期聚合
+                # 按注册日期聚合，区分角色
                 daily_reg: dict[str, int] = {}
+                daily_guest: dict[str, int] = {}
                 for u in users:
                     dt = _parse_dt(u.get("created_at", ""))
                     if dt:
                         day_key = dt.strftime("%Y-%m-%d")
-                        daily_reg[day_key] = daily_reg.get(day_key, 0) + 1
+                        if u.get("role") == "guest":
+                            daily_guest[day_key] = daily_guest.get(day_key, 0) + 1
+                        else:
+                            daily_reg[day_key] = daily_reg.get(day_key, 0) + 1
 
-                if daily_reg:
+                all_days = sorted(set(list(daily_reg.keys()) + list(daily_guest.keys())))
+                if all_days:
                     import pandas as pd
-                    sorted_days = sorted(daily_reg.items())
-                    dates = [d[0] for d in sorted_days]
-                    counts = [d[1] for d in sorted_days]
+                    reg_counts = [daily_reg.get(d, 0) for d in all_days]
+                    guest_counts = [daily_guest.get(d, 0) for d in all_days]
                     # 累积增长
-                    cumulative = []
-                    running = 0
-                    for c in counts:
-                        running += c
-                        cumulative.append(running)
-                    df = pd.DataFrame(
-                        {"日期": dates, "新增用户": counts, "用户总数": cumulative}
-                    )
+                    cum_reg = []
+                    cum_guest = []
+                    run_reg = run_guest = 0
+                    for r, g in zip(reg_counts, guest_counts):
+                        run_reg += r
+                        run_guest += g
+                        cum_reg.append(run_reg)
+                        cum_guest.append(run_guest)
+                    df = pd.DataFrame({
+                        "日期": all_days,
+                        "新增注册": reg_counts,
+                        "新增游客": guest_counts,
+                        "注册总数": cum_reg,
+                        "游客总数": cum_guest,
+                    })
                     # 最近数据在前
                     df = df.sort_values("日期", ascending=False).reset_index(drop=True)
                     st.dataframe(df, use_container_width=True, hide_index=True)
