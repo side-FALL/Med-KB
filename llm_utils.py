@@ -444,3 +444,312 @@ def build_mindmap_message(hits: list[dict], topic: str) -> str:
         for i, h in enumerate(hits[:5])
     )
     return f"教材段落:\n{ctx}\n\n请为「{topic}」生成思维导图。"
+
+
+# ── 重点总结模式 ─────────────────────────────────────────
+
+SUMMARY_SYSTEM_PROMPT = """你是一名严谨的医学教育助手，正在为学生整理教材重点总结。
+
+【核心约束——必须严格遵守】
+1. 仅依据给定教材段落作答，禁止补充教材以外的内容，禁止虚构或推测任何信息。
+2. 如果给定段落中未找到某条目的相关内容，必须明确回答"教材中未找到相关内容"，不得编造答案。
+3. 每条结果必须标注出处，格式为：📖 教材名·章节名。
+4. 综合多个段落时，标注所有引用来源。
+
+【输出格式要求——按板块类型区分】
+
+▶ 英汉互译板块：
+为每条术语生成中英对照表，格式如下：
+===条目1===
+| 中文 | 英文 |
+|------|------|
+| 中文术语 | English Term |
+📖 出处：教材名·章节名
+
+===条目2===
+（同上格式）
+
+▶ 名词解释板块：
+为每条术语给出定义，格式如下：
+===条目1===
+**术语名**：定义内容（基于教材段落概括，不超过3句话）。
+📖 出处：教材名·章节名
+
+===条目2===
+（同上格式）
+
+▶ 简答题板块：
+为每道问题给出分点结构化答案，格式如下：
+===条目1===
+**问题**：题目原文
+**答案**：
+1. 第一点
+2. 第二点
+3. 第三点
+📖 出处：教材名·章节名
+
+===条目2===
+（同上格式）
+
+【注意事项】
+- 使用中文回答，专业术语附英文原文。
+- 化学方程式和数学公式使用 LaTeX 格式（行内 $...$，独立 $$...$$）。
+- 不要添加总结、前言或结语，直接按条目输出。"""
+
+# 板块类型常量
+SUMMARY_SECTION_TRANSLATION = "translation"
+SUMMARY_SECTION_TERMS = "terms"
+SUMMARY_SECTION_QA = "qa"
+
+# 单次 user message 最大字符数（控制 prompt 长度，避免超长导致超时或截断）
+_SUMMARY_MAX_MSG_CHARS = 6000
+# 每个检索段落截取最大字符数
+_SUMMARY_MAX_HIT_CHARS = 400
+# 每批最大条目数（硬上限，实际按字符数动态切分）
+_SUMMARY_MAX_ITEMS_PER_BATCH = 10
+
+
+def _format_hits_for_summary(hits: list[dict], max_chars: int = _SUMMARY_MAX_HIT_CHARS) -> str:
+    """将检索结果格式化为重点总结消息中的段落引用。"""
+    if not hits:
+        return '（未检索到相关教材段落，请回答"教材中未找到相关内容"）'
+    parts = []
+    for i, h in enumerate(hits):
+        book = h.get("book", "未知教材")
+        chapter = h.get("chapter", "未知章节")
+        text = h.get("text", "")[:max_chars]
+        parts.append(f"[{i+1}] {book}·{chapter}\n{text}")
+    return "\n\n".join(parts)
+
+
+def build_summary_message(
+    section_type: str,
+    items_with_hits: list[dict],
+) -> str:
+    """构建重点总结的用户消息（单批次）。
+
+    Args:
+        section_type: 板块类型，"translation" / "terms" / "qa"
+        items_with_hits: 条目列表，每项格式:
+            {
+                "item": "条目文本",
+                "hits": [{"text": ..., "book": ..., "chapter": ..., "similarity": ...}, ...]
+            }
+            hits 可为空列表（表示未检索到相关段落）。
+
+    Returns:
+        构建好的 user message 字符串。
+    """
+    section_labels = {
+        SUMMARY_SECTION_TRANSLATION: "英汉互译",
+        SUMMARY_SECTION_TERMS: "名词解释",
+        SUMMARY_SECTION_QA: "简答题",
+    }
+    label = section_labels.get(section_type, "重点总结")
+
+    parts = [f"以下是「{label}」板块的条目清单，每条附有从教材中检索到的相关段落。请严格按系统提示的格式逐条作答。\n"]
+
+    for idx, entry in enumerate(items_with_hits, 1):
+        item_text = entry.get("item", "")
+        hits = entry.get("hits", [])
+        hits_text = _format_hits_for_summary(hits)
+        parts.append(f"===条目{idx}===\n{item_text}\n\n检索段落:\n{hits_text}\n")
+
+    parts.append(f"\n请为以上{len(items_with_hits)}条逐一作答，使用 ===条目N=== 标记分隔。")
+    return "\n".join(parts)
+
+
+def split_summary_batches(
+    items_with_hits: list[dict],
+    max_chars: int = _SUMMARY_MAX_MSG_CHARS,
+    max_items: int = _SUMMARY_MAX_ITEMS_PER_BATCH,
+) -> list[list[dict]]:
+    """将条目列表按字符数和条目数切分为多个批次，保证每批 user message 不超长。
+
+    Args:
+        items_with_hits: 完整条目列表。
+        max_chars: 单批次 user message 最大字符数。
+        max_items: 单批次最大条目数。
+
+    Returns:
+        分批后的条目列表（list of list）。
+    """
+    batches: list[list[dict]] = []
+    current_batch: list[dict] = []
+    current_chars = 0
+
+    for entry in items_with_hits:
+        # 估算本条目字符数
+        item_chars = len(entry.get("item", ""))
+        hits_chars = sum(len(h.get("text", "")) for h in entry.get("hits", []))
+        entry_chars = item_chars + min(hits_chars, _SUMMARY_MAX_HIT_CHARS * len(entry.get("hits", []))) + 80  # 80 for formatting overhead
+
+        # 检查是否需要切分
+        if current_batch and (
+            current_chars + entry_chars > max_chars or len(current_batch) >= max_items
+        ):
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+
+        current_batch.append(entry)
+        current_chars += entry_chars
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches if batches else [[]]
+
+
+def parse_summary_response(
+    response_text: str,
+    items: list[str],
+    section_type: str,
+) -> list[dict]:
+    """从 LLM 响应中按条目拆分结果。
+
+    约定 LLM 使用 ===条目N=== 分隔标记。解析失败时降级为整段展示。
+
+    Args:
+        response_text: LLM 返回的完整文本。
+        items: 原始条目文本列表（用于对齐编号）。
+        section_type: 板块类型。
+
+    Returns:
+        列表，每项 {"item": "原始条目", "result": "LLM 对该条目的回答"}。
+        解析失败时返回单条 {"item": "全部", "result": response_text}。
+    """
+    if not response_text or not response_text.strip():
+        return [{"item": "全部", "result": "⚠️ LLM 未返回有效内容"}]
+
+    # 尝试按 ===条目N=== 分隔符拆分
+    pattern = re.compile(r"={2,3}条目\s*(\d+)\s*={2,3}")
+    splits = pattern.split(response_text)
+
+    # split 结果: [前导文本, 编号1, 内容1, 编号2, 内容2, ...]
+    if len(splits) >= 3:
+        results = []
+        # splits[0] 是第一个标记前的文本（通常为空或前言，忽略）
+        i = 1
+        while i < len(splits) - 1:
+            try:
+                entry_num = int(splits[i])
+            except (ValueError, TypeError):
+                i += 2
+                continue
+            content = splits[i + 1].strip()
+            # 对齐原始条目
+            item_text = items[entry_num - 1] if 0 < entry_num <= len(items) else f"条目{entry_num}"
+            results.append({"item": item_text, "result": content})
+            i += 2
+
+        if results:
+            return results
+
+    # 解析失败：降级为整段展示
+    return [{"item": "全部（解析降级）", "result": response_text}]
+
+
+def generate_summary_for_section(
+    section_type: str,
+    items_with_hits: list[dict],
+    api_key: str,
+    api_url: str = DEFAULT_API_URL,
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.2,
+    max_tokens: int = 2000,
+    timeout: int = 45,
+    max_retries: int = 2,
+) -> list[dict]:
+    """按板块批量调用 LLM 生成重点总结（非流式）。
+
+    自动分批，复用 call_llm 的超时保护与 429 重试。
+
+    Args:
+        section_type: 板块类型 "translation" / "terms" / "qa"。
+        items_with_hits: 条目+检索结果列表。
+        api_key: API 密钥。
+        api_url: API 地址。
+        model: 模型 ID。
+        temperature: 温度参数（总结偏低创造性，默认 0.2）。
+        max_tokens: 单次最大 token。
+        timeout: 单次请求超时秒数。
+        max_retries: 最大重试次数。
+
+    Returns:
+        所有批次的解析结果合并列表。
+    """
+    if not items_with_hits:
+        return []
+
+    batches = split_summary_batches(items_with_hits)
+    all_results: list[dict] = []
+
+    for batch in batches:
+        if not batch:
+            continue
+        user_msg = build_summary_message(section_type, batch)
+        items_list = [entry.get("item", "") for entry in batch]
+
+        response = call_llm(
+            api_key=api_key,
+            user_msg=user_msg,
+            api_url=api_url,
+            model=model,
+            system_prompt=SUMMARY_SYSTEM_PROMPT,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+
+        parsed = parse_summary_response(response, items_list, section_type)
+        all_results.extend(parsed)
+
+    return all_results
+
+
+def generate_summary_for_section_stream(
+    section_type: str,
+    items_with_hits: list[dict],
+    api_key: str,
+    api_url: str = DEFAULT_API_URL,
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.2,
+    max_tokens: int = 2000,
+    timeout: int = 45,
+    max_retries: int = 2,
+):
+    """按板块批量调用 LLM 生成重点总结（流式）。
+
+    yield (batch_index, chunk_text) 元组，供 UI 层逐批渲染。
+    复用 call_llm_stream 的超时保护与 429 重试。
+
+    Args:
+        参数同 generate_summary_for_section。
+
+    Yields:
+        (batch_index: int, chunk: str) — 第几批（0-based）及文本片段。
+    """
+    if not items_with_hits:
+        return
+
+    batches = split_summary_batches(items_with_hits)
+
+    for batch_idx, batch in enumerate(batches):
+        if not batch:
+            continue
+        user_msg = build_summary_message(section_type, batch)
+
+        for chunk in call_llm_stream(
+            api_key=api_key,
+            user_msg=user_msg,
+            api_url=api_url,
+            model=model,
+            system_prompt=SUMMARY_SYSTEM_PROMPT,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        ):
+            yield (batch_idx, chunk)
