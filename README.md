@@ -160,9 +160,25 @@ pip install -r requirements.txt
 
 # 配置环境变量（创建 .env 文件）
 cat > .env << EOF
+# ===== 必填 =====
+# 对话模型 + 智能体工具链（CherryIN）
 CS_API_KEY=your-cherryin-api-key
+# 检索向量模型（硅基流动 BGE-M3）
+SILICONFLOW_API_KEY=your-siliconflow-api-key
+
+# ===== 可选：其他模型提供商 =====
 MIMO_API_KEY=your-mimo-api-key
 ARK_API_KEY=your-ark-api-key
+OPENROUTER_API_KEY=your-openrouter-api-key
+
+# ===== 可选：付费模型访问密码（填 bcrypt 哈希，生成方法见下文） =====
+PASSWORD=your-bcrypt-hash
+
+# ===== 可选：用户数据存储（不配置则三级降级到本地缓存） =====
+UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-upstash-token
+JSONBIN_BIN_ID=your-bin-id
+JSONBIN_API_KEY=your-jsonbin-key
 EOF
 
 # 运行
@@ -171,14 +187,27 @@ streamlit run app.py
 
 ### 环境变量说明
 
-| 变量名 | 说明 | 获取方式 |
-|--------|------|----------|
-| `CS_API_KEY` | CherryIN API 密钥 | [CherryIN 官网](https://open.cherryin.net) |
-| `MIMO_API_KEY` | MiMo API 密钥 | [MiMo 官网](https://api.xiaomimimo.com) |
-| `ARK_API_KEY` | 火山方舟 API 密钥 | [火山方舟官网](https://console.volcengine.com/ark) |
-| `OPENROUTER_API_KEY` | OpenRouter API 密钥 | [OpenRouter 官网](https://openrouter.ai) |
-| `UPSTASH_REDIS_REST_URL` | Upstash Redis URL | [Upstash 官网](https://upstash.com) |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis Token | [Upstash 官网](https://upstash.com) |
+| 变量名 | 必填 | 说明 | 获取方式 |
+|--------|:----:|------|----------|
+| `CS_API_KEY` | ✅ | CherryIN API 密钥（DeepSeek V4 Flash 对话 + 智能体工具链向量化） | [CherryIN 官网](https://open.cherryin.net) |
+| `SILICONFLOW_API_KEY` | ✅ | 硅基流动 API 密钥（BGE-M3 检索向量模型，缺失时无法检索） | [硅基流动官网](https://siliconflow.cn) |
+| `MIMO_API_KEY` | — | MiMo API 密钥 | [MiMo 官网](https://api.xiaomimimo.com) |
+| `ARK_API_KEY` | — | 火山方舟 API 密钥 | [火山方舟官网](https://console.volcengine.com/ark) |
+| `OPENROUTER_API_KEY` | — | OpenRouter API 密钥 | [OpenRouter 官网](https://openrouter.ai) |
+| `PASSWORD` | — | 付费模型访问密码，存 **bcrypt 哈希**（兼容旧 SHA-256 哈希；不配置则跳过密码验证） | 见下方生成命令 |
+| `UPSTASH_REDIS_REST_URL` | — | Upstash Redis URL（用户数据主存储） | [Upstash 官网](https://upstash.com) |
+| `UPSTASH_REDIS_REST_TOKEN` | — | Upstash Redis Token | [Upstash 官网](https://upstash.com) |
+| `JSONBIN_BIN_ID` | — | JSONBin Bin ID（二级降级存储） | [JSONBin 官网](https://jsonbin.io) |
+| `JSONBIN_API_KEY` | — | JSONBin API 密钥（二级降级存储） | [JSONBin 官网](https://jsonbin.io) |
+
+> **`PASSWORD` 生成方法**（勿填明文，填哈希）：
+>
+> ```bash
+> python -c "import bcrypt; print(bcrypt.hashpw(b'your-password', bcrypt.gensalt()).decode())"
+> ```
+>
+> 将输出的 60 字符哈希（`$2b$` 开头）填入 `.env`。已注册用户验证一次后自动记住，下次登录免重复输入。
+> 用户数据存储采用三级降级：Upstash Redis → JSONBin → 本地缓存，全部不配置则完全本地运行。
 
 ## 📝 更新日志
 
