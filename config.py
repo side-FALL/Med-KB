@@ -108,10 +108,10 @@ MODEL_PROVIDERS = {
 # ── 模型配置 ────────────────────────────────────────────
 
 MODELS = {
-    "openrouter/gemma-4-26b-free": {
-        "name": "Gemma 4 26B 免费版",
+    "openrouter/deepseek-v4-flash-free": {
+        "name": "DeepSeek V4 Flash (OpenRouter)",
         "provider": "openrouter",
-        "model_id": "google/gemma-4-26b-a4b-it:free",
+        "model_id": "deepseek/deepseek-v4-flash-0731:free",
     },
     "cherryin/deepseek-v4-flash": {
         "name": "DeepSeek V4 Flash",
@@ -128,16 +128,22 @@ MODELS = {
         "provider": "ark",
         "model_id": "deepseek-v4-flash-260425",
     },
+    "openrouter/free-models-router": {
+        "name": "免费模型自动路由（保底）",
+        "provider": "openrouter",
+        "model_id": "openrouter/free",
+    },
 }
 
 
 # ── 降级顺序 ────────────────────────────────────────────
 
 FALLBACK_ORDER = [
-    "openrouter/gemma-4-26b-free",
+    "openrouter/deepseek-v4-flash-free",
     "cherryin/deepseek-v4-flash",
     "mimo/mimo-v2.5",
     "ark/deepseek-v4-flash",
+    "openrouter/free-models-router",
 ]
 
 
@@ -167,7 +173,7 @@ def is_model_free(model_key: str) -> bool:
     """判断模型是否为免费模型。"""
     model = MODELS[model_key]
     model_id = model.get("model_id", "")
-    return "(free)" in model_id or ":free" in model_id
+    return "(free)" in model_id or ":free" in model_id or model_id.endswith("/free")
 
 
 # ── 密码验证 ────────────────────────────────────────────

@@ -18,7 +18,7 @@ license: Apache License 2.0
 
 - 📚 **43本医学教材**：覆盖临床医学全科教材
 - 🔍 **混合检索**：向量语义 + BM25关键词，支持权重调节
-- 💡 **多模型支持**：Gemma 4 26B（免费）、CherryIN DeepSeek、MiMo V2.5、火山方舟 DeepSeek
+- 💡 **多模型支持**：DeepSeek V4 Flash（OpenRouter 免费）、免费模型自动路由（保底）、CherryIN DeepSeek、MiMo V2.5、火山方舟 DeepSeek
 - 🆓 **完全免费**：嵌入和回答模型均使用免费API
 - 📱 **多端适配**：支持PC和手机浏览器访问
 - 🔄 **多轮对话**：支持连续提问，上下文记忆，代词指代解析
@@ -87,7 +87,7 @@ license: Apache License 2.0
 
 - **向量模型**：SiliconFlow BGE-M3 (免费)
 - **OCR识别**：CherryIN DeepSeek OCR (免费)
-- **回答生成**：Google Gemma 4 26B / CherryIN DeepSeek V4 Flash / MiMo V2.5 / 火山方舟 DeepSeek (免费)
+- **回答生成**：DeepSeek V4 Flash (OpenRouter 免费) / 免费模型自动路由 / CherryIN DeepSeek V4 Flash / MiMo V2.5 / 火山方舟 DeepSeek (免费)
 - **向量存储**：NumPy (轻量级)
 - **用户数据**：Upstash Redis + JSONBin 备用降级
 - **前端框架**：Streamlit
