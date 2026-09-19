@@ -244,7 +244,7 @@ def _hybrid_search(
         hits.append({
             "text": documents[local_idx][:500],
             "book": metadatas[local_idx].get("book", "?"),
-            "chapter": metadatas[local_idx].get("chapter", "?"),
+            "chapter": metadatas[local_idx].get("section", "?"),
             "similarity": round(s, 4),
         })
     return hits
